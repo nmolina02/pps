@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>Importar alumnos desde CSV</h1>
+  <p>
+    El archivo debe tener encabezado con las columnas <code>legajo</code> y <code>full_name</code>.
+    Si un legajo ya existe se actualiza el nombre; si no existe, se crea un alumno nuevo.
+    Podés volver a subir el mismo archivo actualizado cuatrimestre a cuatrimestre sin generar duplicados.
+  </p>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" value="Importar" class="default">
+  </form>
+{% endblock %}
