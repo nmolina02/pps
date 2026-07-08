@@ -6,24 +6,33 @@ import { CaseDetailPage } from './pages/CaseDetailPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { JoinPage } from './pages/JoinPage';
 import { PlayPage } from './pages/PlayPage';
+import { DocenteLoginPage } from './pages/DocenteLoginPage';
+import { CreateSessionPage } from './pages/CreateSessionPage';
+import { HostDashboardPage } from './pages/HostDashboardPage';
 import { ProfileProvider } from './context/ProfileContext';
+import { DocenteProvider } from './context/DocenteContext';
 
 function App() {
   return (
     <ProfileProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<TopicsPage />} />
-            <Route path="/topics/:topicSlug" element={<CasesPage />} />
-            <Route path="/cases/:caseSlug" element={<CaseDetailPage />} />
-            <Route path="/perfil" element={<ProfilePage />} />
-            <Route path="/jugar" element={<JoinPage />} />
-            <Route path="/jugar/:code" element={<PlayPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <DocenteProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<TopicsPage />} />
+              <Route path="/topics/:topicSlug" element={<CasesPage />} />
+              <Route path="/cases/:caseSlug" element={<CaseDetailPage />} />
+              <Route path="/perfil" element={<ProfilePage />} />
+              <Route path="/jugar" element={<JoinPage />} />
+              <Route path="/jugar/:code" element={<PlayPage />} />
+              <Route path="/docente" element={<DocenteLoginPage />} />
+              <Route path="/docente/nueva" element={<CreateSessionPage />} />
+              <Route path="/docente/sala/:code" element={<HostDashboardPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </DocenteProvider>
     </ProfileProvider>
   );
 }

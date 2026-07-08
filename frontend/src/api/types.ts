@@ -128,3 +128,47 @@ export interface AnswerResult {
   is_correct: boolean;
   score: number;
 }
+
+// ---- docente / host ----
+
+export interface LeaderboardRow {
+  legajo: string;
+  full_name: string;
+  total_score: number;
+}
+
+export interface HostQuestionState {
+  order: number;
+  points: number;
+  duration_seconds: number;
+  time_remaining_seconds: number | null;
+  accepts_answers: boolean;
+  revealed: boolean;
+  answers_received: number;
+  question: Question;
+  tally: TallyRow[];
+}
+
+export interface SessionHostState {
+  session: QuizSession;
+  participant_count: number;
+  leaderboard: LeaderboardRow[];
+  current_question: HostQuestionState | null;
+}
+
+export interface SessionQuestionProgress {
+  order: number;
+  points: number;
+  duration_seconds: number;
+  grace_seconds: number;
+  started_at: string | null;
+  revealed_at: string | null;
+  question: Question;
+}
+
+export interface CreateSessionQuestionInput {
+  question_id: number;
+  points: number;
+  duration_seconds: number;
+  grace_seconds: number;
+}

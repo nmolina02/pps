@@ -15,6 +15,7 @@ from .serializers import (
     QuestionPublicSerializer,
     QuestionSerializer,
     QuizSessionSerializer,
+    SessionQuestionSerializer,
     StudentPreferencesSerializer,
     StudentSerializer,
     SubmitAnswerSerializer,
@@ -121,6 +122,19 @@ class CaseDetailView(generics.RetrieveAPIView):
     serializer_class = CaseDetailSerializer
     lookup_field = 'slug'
     queryset = Case.objects.select_related('topic').prefetch_related('questions__options')
+
+
+class QuestionListView(generics.ListAPIView):
+    """Banco de preguntas, filtrable por topic — lo usa el docente para armar una sesión."""
+
+    serializer_class = QuestionSerializer
+
+    def get_queryset(self):
+        qs = Question.objects.select_related('topic', 'case').prefetch_related('options').order_by('id')
+        topic_slug = self.request.query_params.get('topic')
+        if topic_slug:
+            qs = qs.filter(topic__slug=topic_slug)
+        return qs
 
 
 class CreateSessionView(views.APIView):
@@ -241,6 +255,23 @@ class SessionHostStateView(views.APIView):
         session = get_object_or_404(QuizSession, code=code)
         self.check_object_permissions(request, session)
         return Response(_host_state_payload(session))
+
+
+class SessionQuestionListView(views.APIView):
+    """Lista ordenada de las preguntas de una sesión con su progreso (started_at/
+    revealed_at), para que el dashboard del docente sepa qué sigue sin adivinarlo."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSessionHost]
+
+    def get(self, request, code):
+        session = get_object_or_404(QuizSession, code=code)
+        self.check_object_permissions(request, session)
+        questions = (
+            session.session_questions.select_related('question')
+            .prefetch_related('question__options')
+            .order_by('order')
+        )
+        return Response(SessionQuestionSerializer(questions, many=True).data)
 
 
 class SessionStudentStateView(views.APIView):

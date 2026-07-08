@@ -1,11 +1,14 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useProfile } from '../context/ProfileContext';
+import { useDocente } from '../context/DocenteContext';
 import { Avatar } from './Avatar';
 
 export function Layout() {
   const location = useLocation();
   const { profile } = useProfile();
+  const { docente } = useDocente();
   const onProfile = location.pathname === '/perfil';
+  const onDocente = location.pathname.startsWith('/docente');
 
   return (
     <>
@@ -38,6 +41,11 @@ export function Layout() {
               active={location.pathname === '/' || location.pathname.startsWith('/topics') || location.pathname.startsWith('/cases')}
             />
             <NavLink to="/jugar" label="jugar" active={location.pathname.startsWith('/jugar')} />
+            <NavLink
+              to={docente ? '/docente/nueva' : '/docente'}
+              label="docente"
+              active={onDocente}
+            />
             <Link to="/perfil" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {profile ? (
                 <>

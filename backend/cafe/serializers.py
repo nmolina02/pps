@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Case, Participant, Question, QuestionOption, QuizSession, Student, Topic
+from .models import Case, Participant, Question, QuestionOption, QuizSession, SessionQuestion, Student, Topic
 
 
 class TopicSerializer(serializers.ModelSerializer):
@@ -123,6 +123,17 @@ class QuizSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizSession
         fields = ['id', 'code', 'topic', 'status', 'created_at']
+
+
+class SessionQuestionSerializer(serializers.ModelSerializer):
+    """Vista docente-only de una pregunta dentro de una sesión: pregunta completa
+    (con respuesta) + su estado de progreso (arrancada/revelada o no)."""
+
+    question = QuestionSerializer(read_only=True)
+
+    class Meta:
+        model = SessionQuestion
+        fields = ['order', 'points', 'duration_seconds', 'grace_seconds', 'started_at', 'revealed_at', 'question']
 
 
 class SubmitAnswerSerializer(serializers.Serializer):
