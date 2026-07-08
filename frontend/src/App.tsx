@@ -4,6 +4,8 @@ import { TopicsPage } from './pages/TopicsPage';
 import { CasesPage } from './pages/CasesPage';
 import { CaseDetailPage } from './pages/CaseDetailPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { JoinPage } from './pages/JoinPage';
+import { PlayPage } from './pages/PlayPage';
 import { ProfileProvider } from './context/ProfileContext';
 
 function App() {
@@ -16,6 +18,8 @@ function App() {
             <Route path="/topics/:topicSlug" element={<CasesPage />} />
             <Route path="/cases/:caseSlug" element={<CaseDetailPage />} />
             <Route path="/perfil" element={<ProfilePage />} />
+            <Route path="/jugar" element={<JoinPage />} />
+            <Route path="/jugar/:code" element={<PlayPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

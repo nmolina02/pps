@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { getStudentProfile } from '../api/students';
+import { getStudentProfile, updateStudentPreferences } from '../api/students';
+import type { Theme } from '../api/types';
 
-export type Theme = 'dark' | 'light';
+export type { Theme } from '../api/types';
 
 export interface LocalProfile {
   legajo: string;
@@ -48,12 +49,14 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [profile?.theme]);
 
   async function identify(legajo: string) {
+    // El backend es la fuente de verdad de avatar/theme: así las preferencias
+    // viajan con el alumno entre dispositivos, no solo en este navegador.
     const data = await getStudentProfile(legajo);
     const next: LocalProfile = {
       legajo: data.legajo,
       fullName: data.full_name,
-      avatar: profile?.avatar ?? 0,
-      theme: profile?.theme ?? 'dark',
+      avatar: data.avatar,
+      theme: data.theme,
     };
     setProfile(next);
     saveProfile(next);
@@ -64,15 +67,24 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const next = { ...prev, avatar };
       saveProfile(next);
+      updateStudentPreferences(next.legajo, { avatar }).catch((err) =>
+        console.error('No se pudo guardar el avatar en el servidor', err),
+      );
       return next;
     });
   }
 
   function setTheme(theme: Theme) {
     setProfile((prev) => {
-      const next = prev ? { ...prev, theme } : prev;
-      if (next) saveProfile(next);
-      else document.documentElement.dataset.theme = theme;
+      if (!prev) {
+        document.documentElement.dataset.theme = theme;
+        return prev;
+      }
+      const next = { ...prev, theme };
+      saveProfile(next);
+      updateStudentPreferences(next.legajo, { theme }).catch((err) =>
+        console.error('No se pudo guardar el tema en el servidor', err),
+      );
       return next;
     });
   }

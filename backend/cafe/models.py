@@ -157,8 +157,14 @@ class Student(models.Model):
     """Perfil de alumno cargado por el docente (admin) a partir del legajo. Persiste
     entre sesiones/cuatrimestres — no hay alta libre desde el frontend."""
 
+    class Theme(models.TextChoices):
+        DARK = 'dark', 'Oscuro'
+        LIGHT = 'light', 'Claro'
+
     legajo = models.CharField(max_length=20, unique=True)
     full_name = models.CharField(max_length=150)
+    avatar = models.PositiveSmallIntegerField(default=0, help_text='Índice del glifo elegido (0-7) en el frontend.')
+    theme = models.CharField(max_length=5, choices=Theme.choices, default=Theme.DARK)
 
     class Meta:
         ordering = ['full_name']

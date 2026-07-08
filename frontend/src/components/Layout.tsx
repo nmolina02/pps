@@ -37,6 +37,7 @@ export function Layout() {
               label="casos"
               active={location.pathname === '/' || location.pathname.startsWith('/topics') || location.pathname.startsWith('/cases')}
             />
+            <NavLink to="/jugar" label="jugar" active={location.pathname.startsWith('/jugar')} />
             <Link to="/perfil" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {profile ? (
                 <>

@@ -52,10 +52,14 @@ export interface CaseDetail extends CaseListItem {
   questions: Question[];
 }
 
+export type Theme = 'dark' | 'light';
+
 export interface StudentProfile {
   id: number;
   legajo: string;
   full_name: string;
+  avatar: number;
+  theme: Theme;
 }
 
 export interface Paginated<T> {
@@ -63,4 +67,64 @@ export interface Paginated<T> {
   next: string | null;
   previous: string | null;
   results: T[];
+}
+
+// ---- live quiz session ----
+
+export type SessionStatus = 'waiting' | 'active' | 'finished';
+
+export interface QuizSession {
+  id: number;
+  code: string;
+  topic: Topic;
+  status: SessionStatus;
+  created_at: string;
+}
+
+export interface Participant {
+  id: number;
+  student: StudentProfile;
+  joined_at: string;
+}
+
+export interface PublicQuestionOption {
+  id: number;
+  text: string;
+}
+
+export interface PublicQuestion {
+  id: number;
+  text: string;
+  question_type: QuestionType;
+  options: PublicQuestionOption[];
+}
+
+export interface TallyRow {
+  id?: number;
+  text: string;
+  votes: number;
+}
+
+export interface StudentQuestionState {
+  order: number;
+  points: number;
+  duration_seconds: number;
+  time_remaining_seconds: number | null;
+  accepts_answers: boolean;
+  has_answered: boolean;
+  revealed: boolean;
+  question: PublicQuestion;
+  tally?: TallyRow[];
+  correct_option_ids?: number[];
+  justification?: string;
+}
+
+export interface SessionStudentState {
+  session: QuizSession;
+  current_question: StudentQuestionState | null;
+}
+
+export interface AnswerResult {
+  is_correct: boolean;
+  score: number;
 }

@@ -66,7 +66,21 @@ class CaseDetailSerializer(serializers.ModelSerializer):
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = ['id', 'legajo', 'full_name']
+        fields = ['id', 'legajo', 'full_name', 'avatar', 'theme']
+
+
+class StudentPreferencesSerializer(serializers.ModelSerializer):
+    """Único subconjunto de campos que un alumno puede tocar de su propio perfil
+    (sin auth, solo por legajo) — legajo y full_name los carga exclusivamente el docente."""
+
+    class Meta:
+        model = Student
+        fields = ['avatar', 'theme']
+
+    def validate_avatar(self, value):
+        if not 0 <= value <= 7:
+            raise serializers.ValidationError('El avatar debe estar entre 0 y 7.')
+        return value
 
 
 class ParticipantSerializer(serializers.ModelSerializer):

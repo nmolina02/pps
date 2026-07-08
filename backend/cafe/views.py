@@ -15,6 +15,7 @@ from .serializers import (
     QuestionPublicSerializer,
     QuestionSerializer,
     QuizSessionSerializer,
+    StudentPreferencesSerializer,
     StudentSerializer,
     SubmitAnswerSerializer,
     TopicSerializer,
@@ -358,11 +359,20 @@ class SubmitAnswerView(views.APIView):
 
 class StudentProfileView(views.APIView):
     """Lookup público por legajo (sin contraseña, según lo definido para el login de
-    alumnos). Devuelve solo legajo + nombre asignado por el docente vía CSV — nunca
-    puntajes ni historial, eso queda detrás de StudentHistoryView (docente-only)."""
+    alumnos). GET devuelve legajo + nombre asignado por el docente vía CSV + las
+    preferencias de UX guardadas — nunca puntajes ni historial, eso queda detrás de
+    StudentHistoryView (docente-only). PATCH solo permite tocar avatar/theme: legajo
+    y full_name son de solo lectura acá, los carga el docente."""
 
     def get(self, request, legajo):
         student = get_object_or_404(Student, legajo=legajo)
+        return Response(StudentSerializer(student).data)
+
+    def patch(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        serializer = StudentPreferencesSerializer(student, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(StudentSerializer(student).data)
 
 
