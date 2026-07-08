@@ -15,6 +15,7 @@ from .serializers import (
     QuestionPublicSerializer,
     QuestionSerializer,
     QuizSessionSerializer,
+    StudentSerializer,
     SubmitAnswerSerializer,
     TopicSerializer,
 )
@@ -352,4 +353,67 @@ class SubmitAnswerView(views.APIView):
         return Response(
             {'is_correct': answer.is_correct, 'score': earned_points},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class StudentHistoryView(views.APIView):
+    """Historial de un alumno a través de todas las sesiones en las que participó,
+    con el puntaje acumulado por cuestionario y el total across-sessions."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        participations = (
+            student.participations.select_related('session', 'session__topic')
+            .annotate(
+                session_score=Sum('answers__score'),
+                questions_answered=Count('answers'),
+            )
+            .order_by('-session__created_at')
+        )
+
+        sessions = [
+            {
+                'session_code': p.session.code,
+                'topic': TopicSerializer(p.session.topic).data,
+                'status': p.session.status,
+                'created_at': p.session.created_at,
+                'questions_answered': p.questions_answered,
+                'score': p.session_score or 0,
+            }
+            for p in participations
+        ]
+
+        return Response(
+            {
+                'student': StudentSerializer(student).data,
+                'total_score': sum(s['score'] for s in sessions),
+                'sessions': sessions,
+            }
+        )
+
+
+class StudentLeaderboardView(views.APIView):
+    """Ranking de todos los alumnos por puntaje acumulado a través de todos los
+    cuestionarios en los que participaron (histórico, no una sesión puntual)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        students = Student.objects.annotate(
+            total_score=Sum('participations__answers__score'),
+            sessions_played=Count('participations', distinct=True),
+        ).order_by('-total_score', 'full_name')
+
+        return Response(
+            [
+                {
+                    'legajo': s.legajo,
+                    'full_name': s.full_name,
+                    'total_score': s.total_score or 0,
+                    'sessions_played': s.sessions_played,
+                }
+                for s in students
+            ]
         )
