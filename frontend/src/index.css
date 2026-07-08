@@ -32,6 +32,43 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* "reporte impreso" — misma identidad, invertida para modo claro */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f3f1ea;
+  --bg-panel: #ffffff;
+  --bg-panel-raised: #fbfaf5;
+  --bg-inset: #ece9de;
+  --border: #ddd8c9;
+  --border-strong: #c2bba5;
+  --text: #201d16;
+  --text-muted: #5c5747;
+  --text-dim: #8a8471;
+
+  --accent: #a6650c;
+  --accent-soft: rgba(166, 101, 12, 0.12);
+  --accent-strong: #8a5309;
+  --ok: #1a8f63;
+  --ok-soft: rgba(26, 143, 99, 0.12);
+  --danger: #c53f35;
+  --danger-soft: rgba(197, 63, 53, 0.1);
+}
+
+:root[data-theme='light'] body {
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(166, 101, 12, 0.06), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 0%, rgba(26, 143, 99, 0.05), transparent 55%);
+}
+
+:root[data-theme='light'] body::after {
+  display: none;
+}
+
+:root[data-theme='light'] ::selection {
+  background: var(--accent);
+  color: #fff8ec;
+}
+
 * {
   box-sizing: border-box;
 }

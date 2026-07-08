@@ -356,6 +356,16 @@ class SubmitAnswerView(views.APIView):
         )
 
 
+class StudentProfileView(views.APIView):
+    """Lookup público por legajo (sin contraseña, según lo definido para el login de
+    alumnos). Devuelve solo legajo + nombre asignado por el docente vía CSV — nunca
+    puntajes ni historial, eso queda detrás de StudentHistoryView (docente-only)."""
+
+    def get(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        return Response(StudentSerializer(student).data)
+
+
 class StudentHistoryView(views.APIView):
     """Historial de un alumno a través de todas las sesiones en las que participó,
     con el puntaje acumulado por cuestionario y el total across-sessions."""

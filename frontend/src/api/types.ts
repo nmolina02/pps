@@ -52,6 +52,12 @@ export interface CaseDetail extends CaseListItem {
   questions: Question[];
 }
 
+export interface StudentProfile {
+  id: number;
+  legajo: string;
+  full_name: string;
+}
+
 export interface Paginated<T> {
   count: number;
   next: string | null;

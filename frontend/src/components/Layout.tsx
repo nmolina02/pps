@@ -1,14 +1,18 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useProfile } from '../context/ProfileContext';
+import { Avatar } from './Avatar';
 
 export function Layout() {
   const location = useLocation();
+  const { profile } = useProfile();
+  const onProfile = location.pathname === '/perfil';
 
   return (
     <>
       <header
         style={{
           borderBottom: '1px solid var(--border)',
-          background: 'rgba(11, 14, 17, 0.85)',
+          background: 'color-mix(in srgb, var(--bg) 85%, transparent)',
           backdropFilter: 'blur(6px)',
           position: 'sticky',
           top: 0,
@@ -27,8 +31,33 @@ export function Layout() {
               --portal-so
             </span>
           </Link>
-          <nav style={{ display: 'flex', gap: 22 }}>
-            <NavLink to="/" label="casos" active={location.pathname === '/' || location.pathname.startsWith('/topics')} />
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+            <NavLink
+              to="/"
+              label="casos"
+              active={location.pathname === '/' || location.pathname.startsWith('/topics') || location.pathname.startsWith('/cases')}
+            />
+            <Link to="/perfil" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {profile ? (
+                <>
+                  <Avatar id={profile.avatar} size={28} selected={onProfile} />
+                  <span
+                    className="mono"
+                    style={{ fontSize: '0.82rem', color: onProfile ? 'var(--accent-strong)' : 'var(--text-muted)' }}
+                  >
+                    {onProfile ? '› ' : ''}
+                    {profile.legajo}
+                  </span>
+                </>
+              ) : (
+                <span
+                  className="mono"
+                  style={{ fontSize: '0.85rem', color: onProfile ? 'var(--accent-strong)' : 'var(--text-muted)' }}
+                >
+                  {onProfile ? '› ' : ''}perfil
+                </span>
+              )}
+            </Link>
           </nav>
         </div>
       </header>

@@ -27,5 +27,6 @@ urlpatterns = [
         name='session-question-answer',
     ),
     path('students/leaderboard/', views.StudentLeaderboardView.as_view(), name='student-leaderboard'),
+    path('students/<str:legajo>/profile/', views.StudentProfileView.as_view(), name='student-profile'),
     path('students/<str:legajo>/history/', views.StudentHistoryView.as_view(), name='student-history'),
 ]
