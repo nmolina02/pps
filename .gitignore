@@ -1,0 +1,33 @@
+# Python / Django (backend)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+env/
+db.sqlite3
+staticfiles/
+media/
+
+# Env files / secrets
+.env
+.env.*
+!.env.example
+
+# Node / React (frontend)
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Claude Code local session/permission state (machine-specific, not shared)
+.claude/settings.local.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
