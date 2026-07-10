@@ -1,22 +1,28 @@
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
-from .models import Answer, Case, Participant, Question, QuizSession, SessionQuestion, Student, Topic
+from .models import Answer, Case, Participant, Question, QuestionOption, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
+    CaseWriteSerializer,
     CreateSessionSerializer,
     JoinSessionSerializer,
     ParticipantSerializer,
     QuestionPublicSerializer,
     QuestionSerializer,
     QuizSessionSerializer,
+    SessionQuestionSerializer,
+    StudentPreferencesSerializer,
     StudentSerializer,
     SubmitAnswerSerializer,
+    TeacherProfilePreferencesSerializer,
+    TeacherProfileSerializer,
     TopicSerializer,
 )
 from .utils import generate_session_code
@@ -123,6 +129,9 @@ class CaseDetailView(generics.RetrieveAPIView):
 
 
 class CreateSessionView(views.APIView):
+    """Arma un cuestionario y lo crea de una: las preguntas no vienen de un
+    banco reusable, se escriben ahí mismo y nacen atadas a esta sesión."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -130,39 +139,37 @@ class CreateSessionView(views.APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        question_ids = [item['question_id'] for item in data['questions']]
-        questions_by_id = {
-            q.id: q
-            for q in Question.objects.filter(id__in=question_ids, topic_id=data['topic_id'])
-        }
-        if len(questions_by_id) != len(set(question_ids)):
-            return Response(
-                {
-                    'error': {
-                        'code': 'invalid_questions',
-                        'message': 'Alguna pregunta no existe o no pertenece al topic indicado.',
-                        'details': {},
-                    }
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        with transaction.atomic():
+            session = QuizSession.objects.create(
+                code=generate_session_code(), topic_id=data['topic_id'], host=request.user
             )
-
-        session = QuizSession.objects.create(
-            code=generate_session_code(), topic_id=data['topic_id'], host=request.user
-        )
-        SessionQuestion.objects.bulk_create(
-            [
-                SessionQuestion(
+            for index, item in enumerate(data['questions']):
+                question = Question.objects.create(
+                    topic_id=data['topic_id'],
+                    text=item['text'],
+                    question_type=item['question_type'],
+                    justification=item['justification'],
+                )
+                is_fill_blank = item['question_type'] == Question.Type.FILL_BLANK
+                QuestionOption.objects.bulk_create(
+                    [
+                        QuestionOption(
+                            question=question,
+                            text=o['text'],
+                            is_correct=True if is_fill_blank else o['is_correct'],
+                        )
+                        for o in item['options']
+                    ]
+                )
+                SessionQuestion.objects.create(
                     session=session,
-                    question=questions_by_id[item['question_id']],
+                    question=question,
                     order=index + 1,
                     points=item['points'],
                     duration_seconds=item['duration_seconds'],
                     grace_seconds=item['grace_seconds'],
                 )
-                for index, item in enumerate(data['questions'])
-            ]
-        )
+
         return Response(QuizSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
@@ -240,6 +247,23 @@ class SessionHostStateView(views.APIView):
         session = get_object_or_404(QuizSession, code=code)
         self.check_object_permissions(request, session)
         return Response(_host_state_payload(session))
+
+
+class SessionQuestionListView(views.APIView):
+    """Lista ordenada de las preguntas de una sesión con su progreso (started_at/
+    revealed_at), para que el dashboard del docente sepa qué sigue sin adivinarlo."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSessionHost]
+
+    def get(self, request, code):
+        session = get_object_or_404(QuizSession, code=code)
+        self.check_object_permissions(request, session)
+        questions = (
+            session.session_questions.select_related('question')
+            .prefetch_related('question__options')
+            .order_by('order')
+        )
+        return Response(SessionQuestionSerializer(questions, many=True).data)
 
 
 class SessionStudentStateView(views.APIView):
@@ -356,6 +380,25 @@ class SubmitAnswerView(views.APIView):
         )
 
 
+class StudentProfileView(views.APIView):
+    """Lookup público por legajo (sin contraseña, según lo definido para el login de
+    alumnos). GET devuelve legajo + nombre asignado por el docente vía CSV + las
+    preferencias de UX guardadas — nunca puntajes ni historial, eso queda detrás de
+    StudentHistoryView (docente-only). PATCH solo permite tocar avatar/theme: legajo
+    y full_name son de solo lectura acá, los carga el docente."""
+
+    def get(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        return Response(StudentSerializer(student).data)
+
+    def patch(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        serializer = StudentPreferencesSerializer(student, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(StudentSerializer(student).data)
+
+
 class StudentHistoryView(views.APIView):
     """Historial de un alumno a través de todas las sesiones en las que participó,
     con el puntaje acumulado por cuestionario y el total across-sessions."""
@@ -392,6 +435,45 @@ class StudentHistoryView(views.APIView):
                 'sessions': sessions,
             }
         )
+
+
+class TeacherProfileView(views.APIView):
+    """Preferencias de UI del docente logueado (avatar/tema), análogo a
+    StudentProfileView pero atado a request.user en vez de a un legajo público."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile, _created = TeacherProfile.objects.get_or_create(user=request.user)
+        return Response(TeacherProfileSerializer(profile).data)
+
+    def patch(self, request):
+        profile, _created = TeacherProfile.objects.get_or_create(user=request.user)
+        serializer = TeacherProfilePreferencesSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(TeacherProfileSerializer(profile).data)
+
+
+class CaseCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = CaseWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = serializer.save()
+        return Response(CaseDetailSerializer(case).data, status=status.HTTP_201_CREATED)
+
+
+class CaseUpdateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, slug):
+        case = get_object_or_404(Case, slug=slug)
+        serializer = CaseWriteSerializer(case, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        case = serializer.save()
+        return Response(CaseDetailSerializer(case).data)
 
 
 class StudentLeaderboardView(views.APIView):

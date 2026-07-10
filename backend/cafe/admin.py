@@ -15,6 +15,7 @@ from .models import (
     QuizSession,
     SessionQuestion,
     Student,
+    TeacherProfile,
     Topic,
 )
 
@@ -130,3 +131,8 @@ class ParticipantAdmin(admin.ModelAdmin):
 class AnswerAdmin(admin.ModelAdmin):
     list_display = ['participant', 'session_question', 'is_correct', 'score', 'submitted_at']
     list_filter = ['is_correct']
+
+
+@admin.register(TeacherProfile)
+class TeacherProfileAdmin(admin.ModelAdmin):
+    list_display = ['user', 'avatar', 'theme']
