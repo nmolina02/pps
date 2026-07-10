@@ -1,10 +1,11 @@
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
-from .models import Answer, Case, Participant, Question, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+from .models import Answer, Case, Participant, Question, QuestionOption, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
@@ -15,7 +16,6 @@ from .serializers import (
     ParticipantSerializer,
     QuestionPublicSerializer,
     QuestionSerializer,
-    QuestionWriteSerializer,
     QuizSessionSerializer,
     SessionQuestionSerializer,
     StudentPreferencesSerializer,
@@ -128,20 +128,10 @@ class CaseDetailView(generics.RetrieveAPIView):
     queryset = Case.objects.select_related('topic').prefetch_related('questions__options')
 
 
-class QuestionListView(generics.ListAPIView):
-    """Banco de preguntas, filtrable por topic — lo usa el docente para armar una sesión."""
-
-    serializer_class = QuestionSerializer
-
-    def get_queryset(self):
-        qs = Question.objects.select_related('topic', 'case').prefetch_related('options').order_by('id')
-        topic_slug = self.request.query_params.get('topic')
-        if topic_slug:
-            qs = qs.filter(topic__slug=topic_slug)
-        return qs
-
-
 class CreateSessionView(views.APIView):
+    """Arma un cuestionario y lo crea de una: las preguntas no vienen de un
+    banco reusable, se escriben ahí mismo y nacen atadas a esta sesión."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -149,39 +139,37 @@ class CreateSessionView(views.APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        question_ids = [item['question_id'] for item in data['questions']]
-        questions_by_id = {
-            q.id: q
-            for q in Question.objects.filter(id__in=question_ids, topic_id=data['topic_id'])
-        }
-        if len(questions_by_id) != len(set(question_ids)):
-            return Response(
-                {
-                    'error': {
-                        'code': 'invalid_questions',
-                        'message': 'Alguna pregunta no existe o no pertenece al topic indicado.',
-                        'details': {},
-                    }
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        with transaction.atomic():
+            session = QuizSession.objects.create(
+                code=generate_session_code(), topic_id=data['topic_id'], host=request.user
             )
-
-        session = QuizSession.objects.create(
-            code=generate_session_code(), topic_id=data['topic_id'], host=request.user
-        )
-        SessionQuestion.objects.bulk_create(
-            [
-                SessionQuestion(
+            for index, item in enumerate(data['questions']):
+                question = Question.objects.create(
+                    topic_id=data['topic_id'],
+                    text=item['text'],
+                    question_type=item['question_type'],
+                    justification=item['justification'],
+                )
+                is_fill_blank = item['question_type'] == Question.Type.FILL_BLANK
+                QuestionOption.objects.bulk_create(
+                    [
+                        QuestionOption(
+                            question=question,
+                            text=o['text'],
+                            is_correct=True if is_fill_blank else o['is_correct'],
+                        )
+                        for o in item['options']
+                    ]
+                )
+                SessionQuestion.objects.create(
                     session=session,
-                    question=questions_by_id[item['question_id']],
+                    question=question,
                     order=index + 1,
                     points=item['points'],
                     duration_seconds=item['duration_seconds'],
                     grace_seconds=item['grace_seconds'],
                 )
-                for index, item in enumerate(data['questions'])
-            ]
-        )
+
         return Response(QuizSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
@@ -447,35 +435,6 @@ class StudentHistoryView(views.APIView):
                 'sessions': sessions,
             }
         )
-
-
-class QuestionCreateView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        serializer = QuestionWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        question = serializer.save()
-        return Response(QuestionSerializer(question).data, status=status.HTTP_201_CREATED)
-
-
-class QuestionUpdateView(views.APIView):
-    """A diferencia de Case, no hay endpoint público por id (solo listado
-    filtrado por topic), así que acá sí hace falta el GET para precargar
-    el form de edición del docente."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, pk):
-        question = get_object_or_404(Question, pk=pk)
-        return Response(QuestionSerializer(question).data)
-
-    def patch(self, request, pk):
-        question = get_object_or_404(Question, pk=pk)
-        serializer = QuestionWriteSerializer(question, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        question = serializer.save()
-        return Response(QuestionSerializer(question).data)
 
 
 class TeacherProfileView(views.APIView):

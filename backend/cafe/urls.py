@@ -6,7 +6,6 @@ urlpatterns = [
     path('topics/', views.TopicListView.as_view(), name='topic-list'),
     path('cases/', views.CaseListView.as_view(), name='case-list'),
     path('cases/<slug:slug>/', views.CaseDetailView.as_view(), name='case-detail'),
-    path('questions/', views.QuestionListView.as_view(), name='question-list'),
     path('sessions/', views.CreateSessionView.as_view(), name='session-create'),
     path('sessions/<str:code>/join/', views.JoinSessionView.as_view(), name='session-join'),
     path('sessions/<str:code>/finish/', views.FinishSessionView.as_view(), name='session-finish'),
@@ -34,6 +33,4 @@ urlpatterns = [
     path('docente/perfil/', views.TeacherProfileView.as_view(), name='teacher-profile'),
     path('docente/cases/', views.CaseCreateView.as_view(), name='docente-case-create'),
     path('docente/cases/<slug:slug>/', views.CaseUpdateView.as_view(), name='docente-case-update'),
-    path('docente/questions/', views.QuestionCreateView.as_view(), name='docente-question-create'),
-    path('docente/questions/<int:pk>/', views.QuestionUpdateView.as_view(), name='docente-question-update'),
 ]

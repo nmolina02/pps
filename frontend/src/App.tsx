@@ -13,8 +13,6 @@ import { HostDashboardPage } from './pages/HostDashboardPage';
 import { DocenteProfilePage } from './pages/DocenteProfilePage';
 import { CaseManagePage } from './pages/CaseManagePage';
 import { CaseFormPage } from './pages/CaseFormPage';
-import { QuestionManagePage } from './pages/QuestionManagePage';
-import { QuestionFormPage } from './pages/QuestionFormPage';
 import { ProfileProvider, useProfile } from './context/ProfileContext';
 import { DocenteProvider, useDocente } from './context/DocenteContext';
 
@@ -54,9 +52,6 @@ function App() {
               <Route path="/docente/casos" element={<CaseManagePage />} />
               <Route path="/docente/casos/nuevo" element={<CaseFormPage />} />
               <Route path="/docente/casos/:caseSlug/editar" element={<CaseFormPage />} />
-              <Route path="/docente/preguntas" element={<QuestionManagePage />} />
-              <Route path="/docente/preguntas/nueva" element={<QuestionFormPage />} />
-              <Route path="/docente/preguntas/:questionId/editar" element={<QuestionFormPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

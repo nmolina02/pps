@@ -2,10 +2,26 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { listTopics } from '../api/cases';
-import { listQuestions } from '../api/questions';
 import { createSession } from '../api/host';
 import { QUESTION_TYPE_LABELS } from '../api/types';
-import type { CreateSessionQuestionInput, Question, Topic } from '../api/types';
+import type { CreateSessionQuestionInput, QuestionType, Topic } from '../api/types';
+
+function emptyOptions(type: QuestionType): CreateSessionQuestionInput['options'] {
+  const count = type === 'fill_blank' ? 1 : 2;
+  return Array.from({ length: count }, () => ({ text: '', is_correct: false }));
+}
+
+function emptyDraft(): CreateSessionQuestionInput {
+  return {
+    text: '',
+    question_type: 'single_choice',
+    justification: '',
+    options: emptyOptions('single_choice'),
+    points: 100,
+    duration_seconds: 20,
+    grace_seconds: 2,
+  };
+}
 
 export function CreateSessionPage() {
   const { docente } = useDocente();
@@ -13,8 +29,7 @@ export function CreateSessionPage() {
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicId, setTopicId] = useState<number | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [selected, setSelected] = useState<CreateSessionQuestionInput[]>([]);
+  const [drafts, setDrafts] = useState<CreateSessionQuestionInput[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,15 +38,8 @@ export function CreateSessionPage() {
   }, []);
 
   useEffect(() => {
-    setSelected([]);
-    if (topicId === null) {
-      setQuestions([]);
-      return;
-    }
-    const topic = topics.find((t) => t.id === topicId);
-    if (!topic) return;
-    listQuestions(topic.slug).then((data) => setQuestions(data.results));
-  }, [topicId, topics]);
+    setDrafts([]);
+  }, [topicId]);
 
   if (!docente) {
     return (
@@ -44,24 +52,104 @@ export function CreateSessionPage() {
     );
   }
 
-  function toggleQuestion(q: Question) {
-    setSelected((prev) => {
-      const exists = prev.find((s) => s.question_id === q.id);
-      if (exists) return prev.filter((s) => s.question_id !== q.id);
-      return [...prev, { question_id: q.id, points: 100, duration_seconds: 20, grace_seconds: 2 }];
-    });
+  function addDraft() {
+    setDrafts((prev) => [...prev, emptyDraft()]);
   }
 
-  function updateSelected(questionId: number, patch: Partial<CreateSessionQuestionInput>) {
-    setSelected((prev) => prev.map((s) => (s.question_id === questionId ? { ...s, ...patch } : s)));
+  function removeDraft(index: number) {
+    setDrafts((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateDraft(index: number, patch: Partial<CreateSessionQuestionInput>) {
+    setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  }
+
+  function handleTypeChange(index: number, nextType: QuestionType) {
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== index) return d;
+        const cleared = d.options.map((o) => ({ ...o, is_correct: false }));
+        const minRows = nextType === 'fill_blank' ? 1 : 2;
+        while (cleared.length < minRows) cleared.push({ text: '', is_correct: false });
+        return { ...d, question_type: nextType, options: cleared };
+      }),
+    );
+  }
+
+  function updateOptionText(draftIndex: number, optionIndex: number, text: string) {
+    setDrafts((prev) =>
+      prev.map((d, i) =>
+        i !== draftIndex ? d : { ...d, options: d.options.map((o, oi) => (oi === optionIndex ? { ...o, text } : o)) },
+      ),
+    );
+  }
+
+  function toggleCorrect(draftIndex: number, optionIndex: number) {
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== draftIndex) return d;
+        if (d.question_type === 'single_choice') {
+          return { ...d, options: d.options.map((o, oi) => ({ ...o, is_correct: oi === optionIndex })) };
+        }
+        return {
+          ...d,
+          options: d.options.map((o, oi) => (oi === optionIndex ? { ...o, is_correct: !o.is_correct } : o)),
+        };
+      }),
+    );
+  }
+
+  function addOption(draftIndex: number) {
+    setDrafts((prev) =>
+      prev.map((d, i) => (i !== draftIndex ? d : { ...d, options: [...d.options, { text: '', is_correct: false }] })),
+    );
+  }
+
+  function removeOption(draftIndex: number, optionIndex: number) {
+    setDrafts((prev) =>
+      prev.map((d, i) => (i !== draftIndex ? d : { ...d, options: d.options.filter((_, oi) => oi !== optionIndex) })),
+    );
   }
 
   async function handleCreate() {
-    if (topicId === null || selected.length === 0) return;
+    if (!docente || topicId === null || drafts.length === 0) return;
+
+    for (const draft of drafts) {
+      if (!draft.text.trim() || !draft.justification.trim()) {
+        setError('Todas las preguntas necesitan enunciado y justificación.');
+        return;
+      }
+      const minOptions = draft.question_type === 'fill_blank' ? 1 : 2;
+      const trimmed = draft.options.map((o) => ({ ...o, text: o.text.trim() })).filter((o) => o.text.length > 0);
+      if (trimmed.length < minOptions) {
+        setError(`Cada pregunta necesita al menos ${minOptions} opción(es).`);
+        return;
+      }
+      if (draft.question_type !== 'fill_blank') {
+        const correctCount = trimmed.filter((o) => o.is_correct).length;
+        if (draft.question_type === 'single_choice' && correctCount !== 1) {
+          setError('Las preguntas de opción única necesitan exactamente una opción correcta.');
+          return;
+        }
+        if (draft.question_type === 'multiple_choice' && correctCount < 1) {
+          setError('Las preguntas de opción múltiple necesitan al menos una opción correcta.');
+          return;
+        }
+      }
+    }
+
     setCreating(true);
     setError(null);
     try {
-      const session = await createSession(docente.token, { topic_id: topicId, questions: selected });
+      const session = await createSession(docente.token, {
+        topic_id: topicId,
+        questions: drafts.map((d) => ({
+          ...d,
+          text: d.text.trim(),
+          justification: d.justification.trim(),
+          options: d.options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })).filter((o) => o.text),
+        })),
+      });
       navigate(`/docente/sala/${session.code}`);
     } catch {
       setError('No se pudo crear la sesión.');
@@ -96,59 +184,38 @@ export function CreateSessionPage() {
 
       {topicId !== null && (
         <section>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <h3>2. Preguntas ({selected.length} seleccionadas)</h3>
-            <Link to={`/docente/preguntas/nueva?topic=${topicId}`} className="mono" style={{ color: 'var(--accent-strong)', fontSize: '0.85rem' }}>
-              + nueva pregunta
-            </Link>
-          </div>
-          {questions.length === 0 && <p className="mono">Este tema todavía no tiene preguntas cargadas.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {questions.map((q) => {
-              const sel = selected.find((s) => s.question_id === q.id);
-              return (
-                <div
-                  key={q.id}
-                  className="panel"
-                  style={{ padding: '14px 16px', borderColor: sel ? 'var(--accent)' : 'var(--border)' }}
-                >
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={!!sel} onChange={() => toggleQuestion(q)} style={{ marginTop: 4 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                        <span style={{ color: 'var(--text)' }}>{q.text}</span>
-                        <span className="chip">{QUESTION_TYPE_LABELS[q.question_type]}</span>
-                      </div>
-                    </div>
-                  </label>
-                  {sel && (
-                    <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingLeft: 28 }}>
-                      <NumberField label="pts" value={sel.points} onChange={(v) => updateSelected(q.id, { points: v })} />
-                      <NumberField
-                        label="seg"
-                        value={sel.duration_seconds}
-                        onChange={(v) => updateSelected(q.id, { duration_seconds: v })}
-                      />
-                      <NumberField
-                        label="gracia s"
-                        value={sel.grace_seconds}
-                        onChange={(v) => updateSelected(q.id, { grace_seconds: v })}
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <h3 style={{ marginBottom: 14 }}>2. Preguntas ({drafts.length})</h3>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {drafts.map((draft, index) => (
+              <QuestionDraftEditor
+                key={index}
+                draft={draft}
+                onChangeType={(t) => handleTypeChange(index, t)}
+                onChangeField={(patch) => updateDraft(index, patch)}
+                onChangeOptionText={(oi, text) => updateOptionText(index, oi, text)}
+                onToggleCorrect={(oi) => toggleCorrect(index, oi)}
+                onAddOption={() => addOption(index)}
+                onRemoveOption={(oi) => removeOption(index, oi)}
+                onRemove={() => removeDraft(index)}
+              />
+            ))}
           </div>
 
-          <button
-            className="btn primary"
-            style={{ marginTop: 24 }}
-            disabled={selected.length === 0 || creating}
-            onClick={handleCreate}
-          >
-            {creating ? 'creando…' : `crear sesión con ${selected.length} pregunta${selected.length === 1 ? '' : 's'} →`}
+          <button type="button" className="btn" style={{ marginTop: 16 }} onClick={addDraft}>
+            + agregar pregunta
           </button>
+
+          <div>
+            <button
+              className="btn primary"
+              style={{ marginTop: 24 }}
+              disabled={drafts.length === 0 || creating}
+              onClick={handleCreate}
+            >
+              {creating ? 'creando…' : `crear sesión con ${drafts.length} pregunta${drafts.length === 1 ? '' : 's'} →`}
+            </button>
+          </div>
           {error && (
             <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: 12 }}>
               <span className="status-dot danger" />
@@ -157,6 +224,125 @@ export function CreateSessionPage() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function QuestionDraftEditor({
+  draft,
+  onChangeType,
+  onChangeField,
+  onChangeOptionText,
+  onToggleCorrect,
+  onAddOption,
+  onRemoveOption,
+  onRemove,
+}: {
+  draft: CreateSessionQuestionInput;
+  onChangeType: (t: QuestionType) => void;
+  onChangeField: (patch: Partial<CreateSessionQuestionInput>) => void;
+  onChangeOptionText: (optionIndex: number, text: string) => void;
+  onToggleCorrect: (optionIndex: number) => void;
+  onAddOption: () => void;
+  onRemoveOption: (optionIndex: number) => void;
+  onRemove: () => void;
+}) {
+  const minOptions = draft.question_type === 'fill_blank' ? 1 : 2;
+
+  return (
+    <div className="panel" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <select
+          value={draft.question_type}
+          onChange={(e) => onChangeType(e.target.value as QuestionType)}
+          className="mono"
+          style={{ ...selectStyle, minWidth: 180 }}
+        >
+          {(Object.keys(QUESTION_TYPE_LABELS) as QuestionType[]).map((t) => (
+            <option key={t} value={t}>
+              {QUESTION_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="mono"
+          style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.85rem' }}
+        >
+          quitar pregunta
+        </button>
+      </div>
+
+      <textarea
+        value={draft.text}
+        onChange={(e) => onChangeField({ text: e.target.value })}
+        placeholder="enunciado"
+        className="mono"
+        style={textareaStyle}
+        rows={2}
+      />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {draft.options.map((option, oi) => (
+          <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {draft.question_type !== 'fill_blank' && (
+              <input
+                type={draft.question_type === 'single_choice' ? 'radio' : 'checkbox'}
+                name={`correct-option`}
+                checked={option.is_correct}
+                onChange={() => onToggleCorrect(oi)}
+                title="marcar como correcta"
+              />
+            )}
+            <input
+              value={option.text}
+              onChange={(e) => onChangeOptionText(oi, e.target.value)}
+              className="mono"
+              style={{ ...inputStyle, flex: 1 }}
+              placeholder={draft.question_type === 'fill_blank' ? 'respuesta aceptada' : 'texto de la opción'}
+            />
+            <button
+              type="button"
+              onClick={() => onRemoveOption(oi)}
+              disabled={draft.options.length <= minOptions}
+              className="mono"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: draft.options.length <= minOptions ? 'var(--text-dim)' : 'var(--danger)',
+                cursor: draft.options.length <= minOptions ? 'default' : 'pointer',
+                fontSize: '0.85rem',
+              }}
+            >
+              quitar
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={onAddOption}
+          className="mono"
+          style={{ background: 'none', border: 'none', color: 'var(--accent-strong)', cursor: 'pointer', fontSize: '0.85rem', alignSelf: 'flex-start' }}
+        >
+          + agregar opción
+        </button>
+      </div>
+
+      <textarea
+        value={draft.justification}
+        onChange={(e) => onChangeField({ justification: e.target.value })}
+        placeholder="justificación (se muestra después de responder)"
+        className="mono"
+        style={textareaStyle}
+        rows={2}
+      />
+
+      <div style={{ display: 'flex', gap: 16 }}>
+        <NumberField label="pts" value={draft.points} onChange={(v) => onChangeField({ points: v })} />
+        <NumberField label="seg" value={draft.duration_seconds} onChange={(v) => onChangeField({ duration_seconds: v })} />
+        <NumberField label="gracia s" value={draft.grace_seconds} onChange={(v) => onChangeField({ grace_seconds: v })} />
+      </div>
     </div>
   );
 }
@@ -182,6 +368,22 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
     </label>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  background: 'var(--bg-inset)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 3,
+  padding: '0.65em 0.9em',
+  color: 'var(--text)',
+  fontSize: '0.92rem',
+};
+
+const textareaStyle: React.CSSProperties = {
+  ...inputStyle,
+  resize: 'vertical',
+  fontFamily: 'inherit',
+  lineHeight: 1.5,
+};
 
 const selectStyle: React.CSSProperties = {
   background: 'var(--bg-inset)',

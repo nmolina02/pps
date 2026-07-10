@@ -25,15 +25,13 @@ class QuestionOptionPublicSerializer(serializers.ModelSerializer):
 
 
 class QuestionSerializer(serializers.ModelSerializer):
-    """Vista completa (modo exploración async de un caso, banco docente): incluye
-    respuesta y justificación. `topic`/`case` van como id crudo — alcanza para
-    que el form de edición del docente sepa qué preseleccionar."""
+    """Vista completa (modo exploración async de un caso): incluye respuesta y justificación."""
 
     options = QuestionOptionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Question
-        fields = ['id', 'topic', 'case', 'text', 'question_type', 'options', 'justification', 'conceptual_error']
+        fields = ['id', 'text', 'question_type', 'options', 'justification', 'conceptual_error']
 
 
 class QuestionPublicSerializer(serializers.ModelSerializer):
@@ -44,84 +42,6 @@ class QuestionPublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
         fields = ['id', 'text', 'question_type', 'options']
-
-
-class QuestionOptionWriteSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=255)
-    is_correct = serializers.BooleanField(default=False)
-
-
-class QuestionWriteSerializer(serializers.ModelSerializer):
-    """Alta/edición de una pregunta del banco por el docente, con sus opciones.
-    En un update, si vienen `options` se reemplazan por completo — más simple
-    que diffear por id y suficiente porque no hay respuestas históricas que
-    referencien una QuestionOption puntual fuera de una sesión ya jugada."""
-
-    options = QuestionOptionWriteSerializer(many=True)
-
-    class Meta:
-        model = Question
-        fields = ['id', 'topic', 'case', 'text', 'question_type', 'justification', 'conceptual_error', 'options']
-        read_only_fields = ['id']
-
-    def validate(self, attrs):
-        question_type = attrs.get('question_type') or getattr(self.instance, 'question_type', None)
-        options = attrs.get('options')
-        if options is not None:
-            self._validate_options(question_type, options)
-        return attrs
-
-    @staticmethod
-    def _validate_options(question_type, options):
-        is_fill_blank = question_type == Question.Type.FILL_BLANK
-        min_options = 1 if is_fill_blank else 2
-        if len(options) < min_options:
-            raise serializers.ValidationError(
-                {'options': f'Se necesitan al menos {min_options} opción(es).'}
-            )
-        if is_fill_blank:
-            return
-        correct_count = sum(1 for o in options if o['is_correct'])
-        if question_type == Question.Type.SINGLE_CHOICE and correct_count != 1:
-            raise serializers.ValidationError(
-                {'options': 'Opción única necesita exactamente una opción correcta.'}
-            )
-        if question_type == Question.Type.MULTIPLE_CHOICE and correct_count < 1:
-            raise serializers.ValidationError(
-                {'options': 'Opción múltiple necesita al menos una opción correcta.'}
-            )
-
-    def create(self, validated_data):
-        options = validated_data.pop('options')
-        question = Question.objects.create(**validated_data)
-        self._save_options(question, options)
-        return question
-
-    def update(self, instance, validated_data):
-        options = validated_data.pop('options', None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        if options is not None:
-            instance.options.all().delete()
-            self._save_options(instance, options)
-        return instance
-
-    @staticmethod
-    def _save_options(question, options):
-        # Para fill_blank cada opción es una "respuesta aceptada": se guarda
-        # siempre como correcta, el docente no marca nada en el form.
-        is_fill_blank = question.question_type == Question.Type.FILL_BLANK
-        QuestionOption.objects.bulk_create(
-            [
-                QuestionOption(
-                    question=question,
-                    text=o['text'],
-                    is_correct=True if is_fill_blank else o['is_correct'],
-                )
-                for o in options
-            ]
-        )
 
 
 class CaseListSerializer(serializers.ModelSerializer):
@@ -225,11 +145,41 @@ class JoinSessionSerializer(serializers.Serializer):
     legajo = serializers.CharField(min_length=1, max_length=20)
 
 
+class SessionQuestionOptionSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=255)
+    is_correct = serializers.BooleanField(default=False)
+
+
 class CreateSessionQuestionSerializer(serializers.Serializer):
-    question_id = serializers.IntegerField()
+    """Una pregunta escrita ahí mismo al armar el cuestionario — no elegida de
+    un banco: nace y vive dentro de esta sesión puntual, sin `case` ni
+    `conceptual_error` (eso es de la evaluación de casos, otra funcionalidad)."""
+
+    text = serializers.CharField()
+    question_type = serializers.ChoiceField(choices=Question.Type.choices)
+    justification = serializers.CharField()
+    options = SessionQuestionOptionSerializer(many=True)
     points = serializers.IntegerField(min_value=0, max_value=10000, default=100)
     duration_seconds = serializers.IntegerField(min_value=5, max_value=300, default=20)
     grace_seconds = serializers.IntegerField(min_value=0, max_value=30, default=2)
+
+    def validate(self, attrs):
+        is_fill_blank = attrs['question_type'] == Question.Type.FILL_BLANK
+        min_options = 1 if is_fill_blank else 2
+        options = attrs['options']
+        if len(options) < min_options:
+            raise serializers.ValidationError({'options': f'Se necesitan al menos {min_options} opción(es).'})
+        if not is_fill_blank:
+            correct_count = sum(1 for o in options if o['is_correct'])
+            if attrs['question_type'] == Question.Type.SINGLE_CHOICE and correct_count != 1:
+                raise serializers.ValidationError(
+                    {'options': 'Opción única necesita exactamente una opción correcta.'}
+                )
+            if attrs['question_type'] == Question.Type.MULTIPLE_CHOICE and correct_count < 1:
+                raise serializers.ValidationError(
+                    {'options': 'Opción múltiple necesita al menos una opción correcta.'}
+                )
+        return attrs
 
 
 class CreateSessionSerializer(serializers.Serializer):

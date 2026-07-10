@@ -43,8 +43,6 @@ export interface QuestionOption {
 
 export interface Question {
   id: number;
-  topic: number;
-  case: number | null;
   text: string;
   question_type: QuestionType;
   options: QuestionOption[];
@@ -84,21 +82,6 @@ export interface CaseWriteInput {
   theory: string;
   visual_model: VisualModel;
   visual_model_data: unknown;
-}
-
-export interface QuestionOptionInput {
-  text: string;
-  is_correct: boolean;
-}
-
-export interface QuestionWriteInput {
-  topic: number;
-  case: number | null;
-  text: string;
-  question_type: QuestionType;
-  justification: string;
-  conceptual_error: string;
-  options: QuestionOptionInput[];
 }
 
 export interface Paginated<T> {
@@ -205,8 +188,16 @@ export interface SessionQuestionProgress {
   question: Question;
 }
 
+export interface CreateSessionQuestionOptionInput {
+  text: string;
+  is_correct: boolean;
+}
+
 export interface CreateSessionQuestionInput {
-  question_id: number;
+  text: string;
+  question_type: QuestionType;
+  justification: string;
+  options: CreateSessionQuestionOptionInput[];
   points: number;
   duration_seconds: number;
   grace_seconds: number;

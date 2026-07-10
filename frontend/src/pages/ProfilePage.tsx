@@ -85,7 +85,7 @@ function IdentifiedProfile() {
         <div>
           <p style={{ color: 'var(--text)', fontSize: '1.1rem', fontWeight: 600 }}>{profile.fullName}</p>
           <p className="mono" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginTop: 2 }}>
-            @{profile.legajo} · asignado por el docente, no editable
+            @{profile.legajo}
           </p>
         </div>
       </div>
@@ -105,7 +105,7 @@ function IdentifiedProfile() {
 
       <section>
         <button className="btn" onClick={forget} style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
-          olvidar legajo en este dispositivo
+          cerrar sesión
         </button>
       </section>
     </div>

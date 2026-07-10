@@ -1,9 +1,10 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { Avatar, AvatarPicker } from '../components/Avatar';
 
 export function DocenteProfilePage() {
-  const { docente, setAvatar, setTheme } = useDocente();
+  const { docente, setAvatar, setTheme, logout } = useDocente();
+  const navigate = useNavigate();
 
   if (!docente) {
     return (
@@ -47,6 +48,19 @@ export function DocenteProfilePage() {
             <ThemeOption active={docente.theme === 'dark'} onClick={() => setTheme('dark')} label="oscuro" />
             <ThemeOption active={docente.theme === 'light'} onClick={() => setTheme('light')} label="claro" />
           </div>
+        </section>
+
+        <section>
+          <button
+            className="btn"
+            onClick={() => {
+              logout();
+              navigate('/docente');
+            }}
+            style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+          >
+            cerrar sesión
+          </button>
         </section>
       </div>
     </div>
