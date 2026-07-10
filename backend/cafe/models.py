@@ -3,6 +3,11 @@ from django.db import models
 from django.utils import timezone
 
 
+class Theme(models.TextChoices):
+    DARK = 'dark', 'Oscuro'
+    LIGHT = 'light', 'Claro'
+
+
 class Topic(models.Model):
     """Los 5 temas críticos del alcance de la PPS (Procesos, Planificación, Deadlock, Memoria virtual, Filesystem)."""
 
@@ -157,10 +162,6 @@ class Student(models.Model):
     """Perfil de alumno cargado por el docente (admin) a partir del legajo. Persiste
     entre sesiones/cuatrimestres — no hay alta libre desde el frontend."""
 
-    class Theme(models.TextChoices):
-        DARK = 'dark', 'Oscuro'
-        LIGHT = 'light', 'Claro'
-
     legajo = models.CharField(max_length=20, unique=True)
     full_name = models.CharField(max_length=150)
     avatar = models.PositiveSmallIntegerField(default=0, help_text='Índice del glifo elegido (0-7) en el frontend.')
@@ -171,6 +172,18 @@ class Student(models.Model):
 
     def __str__(self):
         return f'{self.full_name} ({self.legajo})'
+
+
+class TeacherProfile(models.Model):
+    """Preferencias de UI del docente (avatar + tema), persistidas server-side
+    igual que las del alumno, para que viajen entre dispositivos."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='teacher_profile')
+    avatar = models.PositiveSmallIntegerField(default=0, help_text='Índice del glifo elegido (0-7) en el frontend.')
+    theme = models.CharField(max_length=5, choices=Theme.choices, default=Theme.DARK)
+
+    def __str__(self):
+        return f'perfil docente de {self.user.username}'
 
 
 class Participant(models.Model):

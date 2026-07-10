@@ -4,13 +4,8 @@ import { useDocente } from '../context/DocenteContext';
 import { listTopics } from '../api/cases';
 import { listQuestions } from '../api/questions';
 import { createSession } from '../api/host';
+import { QUESTION_TYPE_LABELS } from '../api/types';
 import type { CreateSessionQuestionInput, Question, Topic } from '../api/types';
-
-const TYPE_LABELS: Record<Question['question_type'], string> = {
-  single_choice: 'opción única',
-  multiple_choice: 'opción múltiple',
-  fill_blank: 'completar',
-};
 
 export function CreateSessionPage() {
   const { docente } = useDocente();
@@ -101,7 +96,12 @@ export function CreateSessionPage() {
 
       {topicId !== null && (
         <section>
-          <h3 style={{ marginBottom: 10 }}>2. Preguntas ({selected.length} seleccionadas)</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <h3>2. Preguntas ({selected.length} seleccionadas)</h3>
+            <Link to={`/docente/preguntas/nueva?topic=${topicId}`} className="mono" style={{ color: 'var(--accent-strong)', fontSize: '0.85rem' }}>
+              + nueva pregunta
+            </Link>
+          </div>
           {questions.length === 0 && <p className="mono">Este tema todavía no tiene preguntas cargadas.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {questions.map((q) => {
@@ -117,7 +117,7 @@ export function CreateSessionPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                         <span style={{ color: 'var(--text)' }}>{q.text}</span>
-                        <span className="chip">{TYPE_LABELS[q.question_type]}</span>
+                        <span className="chip">{QUESTION_TYPE_LABELS[q.question_type]}</span>
                       </div>
                     </div>
                   </label>

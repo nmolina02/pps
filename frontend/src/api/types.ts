@@ -29,6 +29,12 @@ export interface CaseListItem {
 
 export type QuestionType = 'single_choice' | 'multiple_choice' | 'fill_blank';
 
+export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+  single_choice: 'opción única',
+  multiple_choice: 'opción múltiple',
+  fill_blank: 'completar',
+};
+
 export interface QuestionOption {
   id: number;
   text: string;
@@ -37,6 +43,8 @@ export interface QuestionOption {
 
 export interface Question {
   id: number;
+  topic: number;
+  case: number | null;
   text: string;
   question_type: QuestionType;
   options: QuestionOption[];
@@ -60,6 +68,37 @@ export interface StudentProfile {
   full_name: string;
   avatar: number;
   theme: Theme;
+}
+
+export interface TeacherProfile {
+  username: string;
+  avatar: number;
+  theme: Theme;
+}
+
+export interface CaseWriteInput {
+  topic: number;
+  title: string;
+  scenario: string;
+  guiding_questions: string;
+  theory: string;
+  visual_model: VisualModel;
+  visual_model_data: unknown;
+}
+
+export interface QuestionOptionInput {
+  text: string;
+  is_correct: boolean;
+}
+
+export interface QuestionWriteInput {
+  topic: number;
+  case: number | null;
+  text: string;
+  question_type: QuestionType;
+  justification: string;
+  conceptual_error: string;
+  options: QuestionOptionInput[];
 }
 
 export interface Paginated<T> {

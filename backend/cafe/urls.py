@@ -31,4 +31,9 @@ urlpatterns = [
     path('students/leaderboard/', views.StudentLeaderboardView.as_view(), name='student-leaderboard'),
     path('students/<str:legajo>/profile/', views.StudentProfileView.as_view(), name='student-profile'),
     path('students/<str:legajo>/history/', views.StudentHistoryView.as_view(), name='student-history'),
+    path('docente/perfil/', views.TeacherProfileView.as_view(), name='teacher-profile'),
+    path('docente/cases/', views.CaseCreateView.as_view(), name='docente-case-create'),
+    path('docente/cases/<slug:slug>/', views.CaseUpdateView.as_view(), name='docente-case-update'),
+    path('docente/questions/', views.QuestionCreateView.as_view(), name='docente-question-create'),
+    path('docente/questions/<int:pk>/', views.QuestionUpdateView.as_view(), name='docente-question-update'),
 ]

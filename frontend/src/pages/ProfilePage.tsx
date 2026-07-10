@@ -10,7 +10,9 @@ export function ProfilePage() {
       <p className="mono prompt" style={{ color: 'var(--text-dim)', fontSize: '0.82rem', marginBottom: 10 }}>
         whoami
       </p>
-      <h1 style={{ marginBottom: 32 }}>Perfil</h1>
+      <h1 className="cursor" style={{ marginBottom: 32 }}>
+        Perfil
+      </h1>
       {profile ? <IdentifiedProfile /> : <IdentifyForm />}
     </div>
   );
@@ -41,10 +43,7 @@ function IdentifyForm() {
 
   return (
     <div className="panel panel-corners" style={{ padding: '26px 24px' }}>
-      <p style={{ color: 'var(--text)', marginBottom: 4 }}>Ingresá tu legajo para identificarte.</p>
-      <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: 20 }}>
-        el nombre lo carga el docente — no se puede editar acá
-      </p>
+      <p style={{ color: 'var(--text)', marginBottom: 20 }}>Ingresá tu legajo para identificarte.</p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 10 }}>
         <input
           value={legajo}

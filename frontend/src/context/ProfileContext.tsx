@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { getStudentProfile, updateStudentPreferences } from '../api/students';
 import type { Theme } from '../api/types';
 
@@ -28,7 +28,6 @@ function saveProfile(profile: LocalProfile | null) {
   } else {
     localStorage.removeItem(STORAGE_KEY);
   }
-  document.documentElement.dataset.theme = profile?.theme === 'light' ? 'light' : 'dark';
 }
 
 interface ProfileContextValue {
@@ -43,10 +42,6 @@ const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<LocalProfile | null>(() => loadProfile());
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = profile?.theme === 'light' ? 'light' : 'dark';
-  }, [profile?.theme]);
 
   async function identify(legajo: string) {
     // El backend es la fuente de verdad de avatar/theme: así las preferencias
@@ -76,10 +71,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   function setTheme(theme: Theme) {
     setProfile((prev) => {
-      if (!prev) {
-        document.documentElement.dataset.theme = theme;
-        return prev;
-      }
+      if (!prev) return prev;
       const next = { ...prev, theme };
       saveProfile(next);
       updateStudentPreferences(next.legajo, { theme }).catch((err) =>

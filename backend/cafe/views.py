@@ -4,21 +4,25 @@ from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
-from .models import Answer, Case, Participant, Question, QuizSession, SessionQuestion, Student, Topic
+from .models import Answer, Case, Participant, Question, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
+    CaseWriteSerializer,
     CreateSessionSerializer,
     JoinSessionSerializer,
     ParticipantSerializer,
     QuestionPublicSerializer,
     QuestionSerializer,
+    QuestionWriteSerializer,
     QuizSessionSerializer,
     SessionQuestionSerializer,
     StudentPreferencesSerializer,
     StudentSerializer,
     SubmitAnswerSerializer,
+    TeacherProfilePreferencesSerializer,
+    TeacherProfileSerializer,
     TopicSerializer,
 )
 from .utils import generate_session_code
@@ -443,6 +447,74 @@ class StudentHistoryView(views.APIView):
                 'sessions': sessions,
             }
         )
+
+
+class QuestionCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = QuestionWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(QuestionSerializer(question).data, status=status.HTTP_201_CREATED)
+
+
+class QuestionUpdateView(views.APIView):
+    """A diferencia de Case, no hay endpoint público por id (solo listado
+    filtrado por topic), así que acá sí hace falta el GET para precargar
+    el form de edición del docente."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        question = get_object_or_404(Question, pk=pk)
+        return Response(QuestionSerializer(question).data)
+
+    def patch(self, request, pk):
+        question = get_object_or_404(Question, pk=pk)
+        serializer = QuestionWriteSerializer(question, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(QuestionSerializer(question).data)
+
+
+class TeacherProfileView(views.APIView):
+    """Preferencias de UI del docente logueado (avatar/tema), análogo a
+    StudentProfileView pero atado a request.user en vez de a un legajo público."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile, _created = TeacherProfile.objects.get_or_create(user=request.user)
+        return Response(TeacherProfileSerializer(profile).data)
+
+    def patch(self, request):
+        profile, _created = TeacherProfile.objects.get_or_create(user=request.user)
+        serializer = TeacherProfilePreferencesSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(TeacherProfileSerializer(profile).data)
+
+
+class CaseCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = CaseWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = serializer.save()
+        return Response(CaseDetailSerializer(case).data, status=status.HTTP_201_CREATED)
+
+
+class CaseUpdateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, slug):
+        case = get_object_or_404(Case, slug=slug)
+        serializer = CaseWriteSerializer(case, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        case = serializer.save()
+        return Response(CaseDetailSerializer(case).data)
 
 
 class StudentLeaderboardView(views.APIView):
