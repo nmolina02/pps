@@ -127,6 +127,11 @@ export interface TallyRow {
   votes: number;
 }
 
+export interface AnswerResult {
+  is_correct: boolean;
+  score: number;
+}
+
 export interface StudentQuestionState {
   order: number;
   points: number;
@@ -139,16 +144,14 @@ export interface StudentQuestionState {
   tally?: TallyRow[];
   correct_option_ids?: number[];
   justification?: string;
+  /** Solo viene una vez revelada la pregunta — antes el alumno no se entera
+   * si acertó, ni siquiera mirando la respuesta cruda de /answer/. */
+  your_result?: AnswerResult;
 }
 
 export interface SessionStudentState {
   session: QuizSession;
   current_question: StudentQuestionState | null;
-}
-
-export interface AnswerResult {
-  is_correct: boolean;
-  score: number;
 }
 
 // ---- docente / host ----
@@ -201,4 +204,52 @@ export interface CreateSessionQuestionInput {
   points: number;
   duration_seconds: number;
   grace_seconds: number;
+}
+
+// ---- cuestionarios persistidos ----
+
+export interface Quiz {
+  id: number;
+  title: string;
+  topic: Topic;
+  host: string;
+  shared_with: string[];
+  question_count: number;
+  created_at: string;
+}
+
+export interface QuizWriteInput {
+  topic_id: number;
+  title: string;
+  shared_with_usernames: string[];
+  questions: CreateSessionQuestionInput[];
+}
+
+export interface QuizQuestionDetail {
+  id: number;
+  order: number;
+  text: string;
+  question_type: QuestionType;
+  justification: string;
+  options: QuestionOption[];
+  points: number;
+  duration_seconds: number;
+  grace_seconds: number;
+}
+
+export interface QuizDetail {
+  id: number;
+  title: string;
+  topic: Topic;
+  host: string;
+  shared_with: string[];
+  questions: QuizQuestionDetail[];
+  created_at: string;
+}
+
+export interface QuizLeaderboardRow {
+  legajo: string;
+  full_name: string;
+  total_score: number;
+  sessions_played: number;
 }

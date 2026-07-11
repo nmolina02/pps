@@ -12,7 +12,7 @@ export function DocenteLoginPage() {
   const [errorMessage, setErrorMessage] = useState('');
 
   if (docente) {
-    return <Navigate to="/docente/nueva" replace />;
+    return <Navigate to="/docente/cuestionarios" replace />;
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -20,7 +20,7 @@ export function DocenteLoginPage() {
     setStatus('loading');
     try {
       await login(username, password);
-      navigate('/docente/nueva');
+      navigate('/docente/cuestionarios');
     } catch (err) {
       setStatus('error');
       setErrorMessage(

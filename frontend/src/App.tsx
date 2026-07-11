@@ -13,6 +13,8 @@ import { HostDashboardPage } from './pages/HostDashboardPage';
 import { DocenteProfilePage } from './pages/DocenteProfilePage';
 import { CaseManagePage } from './pages/CaseManagePage';
 import { CaseFormPage } from './pages/CaseFormPage';
+import { QuizManagePage } from './pages/QuizManagePage';
+import { QuizLeaderboardPage } from './pages/QuizLeaderboardPage';
 import { ProfileProvider, useProfile } from './context/ProfileContext';
 import { DocenteProvider, useDocente } from './context/DocenteContext';
 
@@ -47,7 +49,10 @@ function App() {
               <Route path="/jugar/:code" element={<PlayPage />} />
               <Route path="/docente" element={<DocenteLoginPage />} />
               <Route path="/docente/perfil" element={<DocenteProfilePage />} />
-              <Route path="/docente/nueva" element={<CreateSessionPage />} />
+              <Route path="/docente/cuestionarios" element={<QuizManagePage />} />
+              <Route path="/docente/cuestionarios/nuevo" element={<CreateSessionPage />} />
+              <Route path="/docente/cuestionarios/:quizId/editar" element={<CreateSessionPage />} />
+              <Route path="/docente/cuestionarios/:quizId/leaderboard" element={<QuizLeaderboardPage />} />
               <Route path="/docente/sala/:code" element={<HostDashboardPage />} />
               <Route path="/docente/casos" element={<CaseManagePage />} />
               <Route path="/docente/casos/nuevo" element={<CaseFormPage />} />

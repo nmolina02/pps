@@ -48,8 +48,31 @@ class Case(models.Model):
         return self.title
 
 
+class Quiz(models.Model):
+    """Cuestionario persistido y reutilizable: se arma una vez y se puede
+    arrancar en sesiones en vivo distintas cuatrimestre a cuatrimestre."""
+
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='quizzes')
+    host = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='quizzes')
+    title = models.CharField(max_length=200)
+    shared_with = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name='shared_quizzes',
+        blank=True,
+        help_text='Docentes puntuales que además del dueño pueden verlo y arrancar sesiones — solo el dueño puede editarlo o eliminarlo.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
 class Question(models.Model):
-    """Ítem del banco de preguntas conceptuales, reutilizable fuera de una sesión en vivo."""
+    """Ítem de pregunta: o bien la evaluación conceptual de un Case, o bien
+    una pregunta de un Quiz — nunca las dos cosas a la vez."""
 
     class Type(models.TextChoices):
         SINGLE_CHOICE = 'single_choice', 'Opción única'
@@ -60,6 +83,13 @@ class Question(models.Model):
     case = models.ForeignKey(
         Case, on_delete=models.SET_NULL, related_name='questions', blank=True, null=True
     )
+    quiz = models.ForeignKey(
+        Quiz, on_delete=models.CASCADE, related_name='questions', blank=True, null=True
+    )
+    order = models.PositiveSmallIntegerField(default=1, help_text='Orden dentro de su Quiz.')
+    points = models.PositiveIntegerField(default=100)
+    duration_seconds = models.PositiveSmallIntegerField(default=20)
+    grace_seconds = models.PositiveSmallIntegerField(default=2)
     text = models.TextField()
     question_type = models.CharField(max_length=20, choices=Type.choices)
     justification = models.TextField(help_text='Explicación mostrada tras responder.')
@@ -118,6 +148,9 @@ class QuizSession(models.Model):
         FINISHED = 'finished', 'Finalizada'
 
     code = models.CharField(max_length=8, unique=True)
+    quiz = models.ForeignKey(
+        Quiz, on_delete=models.CASCADE, related_name='sessions', blank=True, null=True
+    )
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='sessions')
     host = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='quiz_sessions'
@@ -130,30 +163,45 @@ class QuizSession(models.Model):
 
 
 class SessionQuestion(models.Model):
-    """Pregunta puntual dentro de una sesión, con el deadline autoritativo del servidor."""
+    """Pregunta puntual dentro de una sesión, con el deadline autoritativo del
+    servidor. order/points/duration_seconds/grace_seconds viven en Question
+    (el Quiz es la fuente de verdad reutilizable); acá solo queda el estado
+    de esta corrida en particular."""
 
     session = models.ForeignKey(QuizSession, on_delete=models.CASCADE, related_name='session_questions')
-    question = models.ForeignKey(Question, on_delete=models.PROTECT)
-    order = models.PositiveSmallIntegerField()
-    points = models.PositiveIntegerField(default=100)
-    duration_seconds = models.PositiveSmallIntegerField(default=20)
-    grace_seconds = models.PositiveSmallIntegerField(default=2)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
     started_at = models.DateTimeField(blank=True, null=True)
     revealed_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        ordering = ['session', 'order']
-        unique_together = [('session', 'order')]
+        ordering = ['session', 'question__order']
+        unique_together = [('session', 'question')]
 
     def __str__(self):
         return f'{self.session.code} #{self.order}'
+
+    @property
+    def order(self):
+        return self.question.order
+
+    @property
+    def points(self):
+        return self.question.points
+
+    @property
+    def duration_seconds(self):
+        return self.question.duration_seconds
+
+    @property
+    def grace_seconds(self):
+        return self.question.grace_seconds
 
     @property
     def accepts_answers(self):
         if self.started_at is None:
             return False
         deadline = self.started_at + timezone.timedelta(
-            seconds=self.duration_seconds + self.grace_seconds
+            seconds=self.question.duration_seconds + self.question.grace_seconds
         )
         return timezone.now() <= deadline
 
@@ -187,10 +235,14 @@ class TeacherProfile(models.Model):
 
 
 class Participant(models.Model):
-    """Presencia de un Student en una QuizSession puntual."""
+    """Presencia de un Student en una QuizSession puntual. total_score se
+    incrementa en vivo en cada respuesta (SubmitAnswerView) y es la fuente
+    de verdad del leaderboard/historial — no se recalcula sumando Answer,
+    porque esas filas se purgan al finalizar la sesión (ver FinishSessionView)."""
 
     session = models.ForeignKey(QuizSession, on_delete=models.CASCADE, related_name='participants')
     student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name='participations')
+    total_score = models.PositiveIntegerField(default=0)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

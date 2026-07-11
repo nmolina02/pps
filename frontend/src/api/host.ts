@@ -1,17 +1,5 @@
 import { apiFetch } from './client';
-import type {
-  CreateSessionQuestionInput,
-  QuizSession,
-  SessionHostState,
-  SessionQuestionProgress,
-} from './types';
-
-export function createSession(
-  token: string,
-  payload: { topic_id: number; questions: CreateSessionQuestionInput[] },
-): Promise<QuizSession> {
-  return apiFetch<QuizSession>('/sessions/', { method: 'POST', body: payload, token });
-}
+import type { QuizSession, SessionHostState, SessionQuestionProgress } from './types';
 
 export function getSessionQuestions(token: string, code: string): Promise<SessionQuestionProgress[]> {
   return apiFetch<SessionQuestionProgress[]>(`/sessions/${encodeURIComponent(code)}/questions/`, { token });
@@ -37,4 +25,8 @@ export function revealQuestion(token: string, code: string, order: number): Prom
 
 export function finishSession(token: string, code: string): Promise<QuizSession> {
   return apiFetch<QuizSession>(`/sessions/${encodeURIComponent(code)}/finish/`, { method: 'POST', token });
+}
+
+export function cancelSession(token: string, code: string): Promise<void> {
+  return apiFetch<void>(`/sessions/${encodeURIComponent(code)}/cancel/`, { method: 'POST', token });
 }

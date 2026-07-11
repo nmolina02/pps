@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProfile } from '../context/ProfileContext';
 import { getStudentSessionState, joinSession, submitAnswer } from '../api/sessions';
-import type { AnswerResult, SessionStudentState } from '../api/types';
+import type { SessionStudentState } from '../api/types';
 import { ApiError } from '../api/client';
 
 const POLL_INTERVAL_MS = 2000;
@@ -19,7 +19,7 @@ export function PlayPage() {
   const [freeText, setFreeText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitResult, setSubmitResult] = useState<AnswerResult | null>(null);
+  const [justSubmitted, setJustSubmitted] = useState(false);
   const [displaySeconds, setDisplaySeconds] = useState<number | null>(null);
   const lastOrderRef = useRef<number | null>(null);
 
@@ -59,7 +59,7 @@ export function PlayPage() {
           lastOrderRef.current = order;
           setSelectedOptions([]);
           setFreeText('');
-          setSubmitResult(null);
+          setJustSubmitted(false);
           setSubmitError(null);
         }
         setDisplaySeconds(data.current_question?.time_remaining_seconds ?? null);
@@ -145,12 +145,12 @@ export function PlayPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await submitAnswer(code, q.order, {
+      await submitAnswer(code, q.order, {
         participant_id: participantId,
         option_ids: selectedOptions.length ? selectedOptions : undefined,
         free_text: freeText.trim() || undefined,
       });
-      setSubmitResult(result);
+      setJustSubmitted(true);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : 'No se pudo enviar la respuesta.');
     } finally {
@@ -159,7 +159,7 @@ export function PlayPage() {
   }
 
   const canSubmit =
-    q.question_type === 'fill_blank' ? freeText.trim().length > 0 : selectedOptions.length > 0;
+    q.question.question_type === 'fill_blank' ? freeText.trim().length > 0 : selectedOptions.length > 0;
 
   return (
     <div className="container" style={{ padding: '40px 24px 72px', maxWidth: 640 }}>
@@ -176,7 +176,7 @@ export function PlayPage() {
 
       <h2 style={{ marginBottom: 20 }}>{q.question.text}</h2>
 
-      {!q.revealed && !q.has_answered && q.accepts_answers && (
+      {!q.revealed && !q.has_answered && !justSubmitted && q.accepts_answers && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {q.question.question_type === 'fill_blank' ? (
             <input
@@ -248,34 +248,24 @@ export function PlayPage() {
         </div>
       )}
 
-      {!q.revealed && !q.has_answered && !q.accepts_answers && (
+      {!q.revealed && !q.has_answered && !justSubmitted && !q.accepts_answers && (
         <StatusMessage tone="danger" text="Se acabó el tiempo para esta pregunta." />
       )}
 
-      {!q.revealed && q.has_answered && (
-        <>
-          {submitResult && (
-            <StatusMessage
-              tone={submitResult.is_correct ? 'ok' : 'warn'}
-              text={
-                submitResult.is_correct
-                  ? `¡Correcto! +${submitResult.score} pts`
-                  : `Respuesta registrada · +${submitResult.score} pts`
-              }
-            />
-          )}
-          <p className="mono cursor" style={{ marginTop: 14, color: 'var(--text-dim)' }}>
-            esperando a que se revele el resultado
-          </p>
-        </>
+      {!q.revealed && (q.has_answered || justSubmitted) && (
+        <StatusMessage tone="warn" text="Respuesta enviada · esperando a que se revele el resultado" />
       )}
 
       {q.revealed && (
         <div>
-          {submitResult && (
+          {q.your_result && (
             <StatusMessage
-              tone={submitResult.is_correct ? 'ok' : 'warn'}
-              text={submitResult.is_correct ? `¡Correcto! +${submitResult.score} pts` : `Tu respuesta sumó +${submitResult.score} pts`}
+              tone={q.your_result.is_correct ? 'ok' : 'warn'}
+              text={
+                q.your_result.is_correct
+                  ? `¡Correcto! +${q.your_result.score} pts`
+                  : `Tu respuesta sumó +${q.your_result.score} pts`
+              }
             />
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
