@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { listTopics } from '../api/cases';
-import { createSession } from '../api/host';
+import { createQuiz, deleteQuiz, getQuiz, startQuiz, updateQuiz } from '../api/docente';
 import { QUESTION_TYPE_LABELS } from '../api/types';
-import type { CreateSessionQuestionInput, QuestionType, Topic } from '../api/types';
+import type { CreateSessionQuestionInput, QuestionType, QuizWriteInput, Topic } from '../api/types';
 
 function emptyOptions(type: QuestionType): CreateSessionQuestionInput['options'] {
   const count = type === 'fill_blank' ? 1 : 2;
@@ -26,10 +26,16 @@ function emptyDraft(): CreateSessionQuestionInput {
 export function CreateSessionPage() {
   const { docente } = useDocente();
   const navigate = useNavigate();
+  const { quizId } = useParams<{ quizId: string }>();
+  const isEditing = Boolean(quizId);
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicId, setTopicId] = useState<number | null>(null);
+  const [title, setTitle] = useState('');
+  const [sharedUsernames, setSharedUsernames] = useState<string[]>([]);
+  const [usernameInput, setUsernameInput] = useState('');
   const [drafts, setDrafts] = useState<CreateSessionQuestionInput[]>([]);
+  const [loading, setLoading] = useState(isEditing);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,8 +44,27 @@ export function CreateSessionPage() {
   }, []);
 
   useEffect(() => {
-    setDrafts([]);
-  }, [topicId]);
+    if (!docente || !quizId) return;
+    getQuiz(docente.token, Number(quizId))
+      .then((quiz) => {
+        setTopicId(quiz.topic.id);
+        setTitle(quiz.title);
+        setSharedUsernames(quiz.shared_with);
+        setDrafts(
+          quiz.questions.map((q) => ({
+            text: q.text,
+            question_type: q.question_type,
+            justification: q.justification,
+            options: q.options.map((o) => ({ text: o.text, is_correct: o.is_correct })),
+            points: q.points,
+            duration_seconds: q.duration_seconds,
+            grace_seconds: q.grace_seconds,
+          })),
+        );
+      })
+      .catch(() => setError('No se pudo cargar el cuestionario.'))
+      .finally(() => setLoading(false));
+  }, [docente, quizId]);
 
   if (!docente) {
     return (
@@ -50,6 +75,45 @@ export function CreateSessionPage() {
         </Link>
       </div>
     );
+  }
+
+  if (isEditing && loading) {
+    return (
+      <div className="container" style={{ padding: '80px 24px', textAlign: 'center' }}>
+        <p className="mono cursor">cargando cuestionario</p>
+      </div>
+    );
+  }
+
+  function handleTopicChange(nextTopicId: number | null) {
+    setTopicId(nextTopicId);
+    setDrafts([]);
+  }
+
+  function addSharedUsername() {
+    const username = usernameInput.trim();
+    if (username && !sharedUsernames.includes(username)) {
+      setSharedUsernames((prev) => [...prev, username]);
+    }
+    setUsernameInput('');
+  }
+
+  function removeSharedUsername(username: string) {
+    setSharedUsernames((prev) => prev.filter((u) => u !== username));
+  }
+
+  async function handleDelete() {
+    if (!docente || !quizId) return;
+    const confirmed = window.confirm(
+      `¿Eliminar "${title}"? Se pierde el historial de sesiones jugadas con este cuestionario.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deleteQuiz(docente.token, Number(quizId));
+      navigate('/docente/cuestionarios');
+    } catch {
+      setError('No se pudo eliminar el cuestionario.');
+    }
   }
 
   function addDraft() {
@@ -111,8 +175,12 @@ export function CreateSessionPage() {
     );
   }
 
-  async function handleCreate() {
+  async function handleSubmit() {
     if (!docente || topicId === null || drafts.length === 0) return;
+    if (!title.trim()) {
+      setError('El cuestionario necesita un título.');
+      return;
+    }
 
     for (const draft of drafts) {
       if (!draft.text.trim() || !draft.justification.trim()) {
@@ -140,19 +208,44 @@ export function CreateSessionPage() {
 
     setCreating(true);
     setError(null);
+    const payload: QuizWriteInput = {
+      topic_id: topicId,
+      title: title.trim(),
+      shared_with_usernames: sharedUsernames,
+      questions: drafts.map((d) => ({
+        ...d,
+        text: d.text.trim(),
+        justification: d.justification.trim(),
+        options: d.options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })).filter((o) => o.text),
+      })),
+    };
+
+    if (isEditing && quizId) {
+      try {
+        await updateQuiz(docente.token, Number(quizId), payload);
+        navigate('/docente/cuestionarios');
+      } catch {
+        setError('No se pudieron guardar los cambios.');
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    let newQuizId: number;
     try {
-      const session = await createSession(docente.token, {
-        topic_id: topicId,
-        questions: drafts.map((d) => ({
-          ...d,
-          text: d.text.trim(),
-          justification: d.justification.trim(),
-          options: d.options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })).filter((o) => o.text),
-        })),
-      });
+      const quiz = await createQuiz(docente.token, payload);
+      newQuizId = quiz.id;
+    } catch {
+      setError('No se pudo guardar el cuestionario.');
+      setCreating(false);
+      return;
+    }
+    try {
+      const session = await startQuiz(docente.token, newQuizId);
       navigate(`/docente/sala/${session.code}`);
     } catch {
-      setError('No se pudo crear la sesión.');
+      setError('El cuestionario se guardó, pero no se pudo iniciar la sesión. Podés iniciarla desde "cuestionarios".');
     } finally {
       setCreating(false);
     }
@@ -161,15 +254,65 @@ export function CreateSessionPage() {
   return (
     <div className="container" style={{ padding: '40px 24px 96px', maxWidth: 760 }}>
       <p className="mono prompt" style={{ color: 'var(--text-dim)', fontSize: '0.82rem', marginBottom: 10 }}>
-        new-session --interactive
+        {isEditing ? `quiz --edit ${quizId}` : 'new-quiz --interactive'}
       </p>
-      <h1 style={{ marginBottom: 28 }}>Armar cuestionario</h1>
+      <h1 style={{ marginBottom: 28 }}>{isEditing ? 'Editar cuestionario' : 'Armar cuestionario'}</h1>
+
+      <section style={{ marginBottom: 28 }}>
+        <h3 style={{ marginBottom: 10 }}>Título</h3>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="nombre del cuestionario"
+          className="mono"
+          style={{ ...inputStyle, maxWidth: 400 }}
+        />
+
+        <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 16, marginBottom: 8 }}>
+          compartir con (username del docente)
+        </p>
+        <div style={{ display: 'flex', gap: 8, maxWidth: 400 }}>
+          <input
+            value={usernameInput}
+            onChange={(e) => setUsernameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addSharedUsername();
+              }
+            }}
+            placeholder="usuario del docente"
+            className="mono"
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button type="button" className="btn" onClick={addSharedUsername}>
+            agregar
+          </button>
+        </div>
+        {sharedUsernames.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            {sharedUsernames.map((username) => (
+              <span key={username} className="chip" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {username}
+                <button
+                  type="button"
+                  onClick={() => removeSharedUsername(username)}
+                  className="mono"
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, fontSize: '0.85rem' }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section style={{ marginBottom: 28 }}>
         <h3 style={{ marginBottom: 10 }}>1. Tema</h3>
         <select
           value={topicId ?? ''}
-          onChange={(e) => setTopicId(e.target.value ? Number(e.target.value) : null)}
+          onChange={(e) => handleTopicChange(e.target.value ? Number(e.target.value) : null)}
           className="mono"
           style={{ ...selectStyle }}
         >
@@ -190,6 +333,7 @@ export function CreateSessionPage() {
             {drafts.map((draft, index) => (
               <QuestionDraftEditor
                 key={index}
+                questionIndex={index}
                 draft={draft}
                 onChangeType={(t) => handleTypeChange(index, t)}
                 onChangeField={(patch) => updateDraft(index, patch)}
@@ -206,15 +350,29 @@ export function CreateSessionPage() {
             + agregar pregunta
           </button>
 
-          <div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <button
               className="btn primary"
               style={{ marginTop: 24 }}
-              disabled={drafts.length === 0 || creating}
-              onClick={handleCreate}
+              disabled={drafts.length === 0 || !title.trim() || creating}
+              onClick={handleSubmit}
             >
-              {creating ? 'creando…' : `crear sesión con ${drafts.length} pregunta${drafts.length === 1 ? '' : 's'} →`}
+              {creating
+                ? 'guardando…'
+                : isEditing
+                  ? 'guardar cambios →'
+                  : `guardar y arrancar (${drafts.length} pregunta${drafts.length === 1 ? '' : 's'}) →`}
             </button>
+            {isEditing && (
+              <button
+                type="button"
+                className="btn"
+                style={{ marginTop: 24, borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                onClick={handleDelete}
+              >
+                eliminar cuestionario
+              </button>
+            )}
           </div>
           {error && (
             <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: 12 }}>
@@ -229,6 +387,7 @@ export function CreateSessionPage() {
 }
 
 function QuestionDraftEditor({
+  questionIndex,
   draft,
   onChangeType,
   onChangeField,
@@ -238,6 +397,7 @@ function QuestionDraftEditor({
   onRemoveOption,
   onRemove,
 }: {
+  questionIndex: number;
   draft: CreateSessionQuestionInput;
   onChangeType: (t: QuestionType) => void;
   onChangeField: (patch: Partial<CreateSessionQuestionInput>) => void;
@@ -289,7 +449,7 @@ function QuestionDraftEditor({
             {draft.question_type !== 'fill_blank' && (
               <input
                 type={draft.question_type === 'single_choice' ? 'radio' : 'checkbox'}
-                name={`correct-option`}
+                name={`correct-option-${questionIndex}`}
                 checked={option.is_correct}
                 onChange={() => onToggleCorrect(oi)}
                 title="marcar como correcta"

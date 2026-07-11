@@ -9,7 +9,8 @@ export function Layout() {
   const { docente } = useDocente();
   const onProfile = location.pathname === '/perfil';
   const onDocenteProfile = location.pathname === '/docente/perfil';
-  const onCuestionarios = location.pathname === '/docente/nueva' || location.pathname.startsWith('/docente/sala');
+  const onCuestionarios =
+    location.pathname.startsWith('/docente/cuestionarios') || location.pathname.startsWith('/docente/sala');
   const onCasosDocente = location.pathname.startsWith('/docente/casos');
 
   return (
@@ -45,7 +46,7 @@ export function Layout() {
 
             {docente ? (
               <>
-                <NavLink to="/docente/nueva" label="cuestionarios" active={onCuestionarios} />
+                <NavLink to="/docente/cuestionarios" label="cuestionarios" active={onCuestionarios} />
                 <NavLink to="/docente/casos" label="gestionar casos" active={onCasosDocente} />
                 <Link to="/docente/perfil" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Avatar id={docente.avatar} size={28} selected={onDocenteProfile} />

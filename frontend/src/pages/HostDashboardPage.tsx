@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
-import { finishSession, getHostState, getSessionQuestions, revealQuestion, startQuestion } from '../api/host';
+import { cancelSession, finishSession, getHostState, getSessionQuestions, revealQuestion, startQuestion } from '../api/host';
 import type { SessionHostState, SessionQuestionProgress } from '../api/types';
 
 const HOST_POLL_INTERVAL_MS = 1000;
@@ -9,6 +9,7 @@ const HOST_POLL_INTERVAL_MS = 1000;
 export function HostDashboardPage() {
   const { code = '' } = useParams<{ code: string }>();
   const { docente } = useDocente();
+  const navigate = useNavigate();
 
   const [state, setState] = useState<SessionHostState | null>(null);
   const [progress, setProgress] = useState<SessionQuestionProgress[]>([]);
@@ -80,6 +81,23 @@ export function HostDashboardPage() {
     }
   }
 
+  async function handleCancel() {
+    if (!docente) return;
+    const confirmed = window.confirm(
+      '¿Cancelar esta sesión? No queda nada guardado: ni participantes, ni respuestas, ni la sesión en sí.',
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelSession(docente.token, code);
+      navigate('/docente/cuestionarios');
+    } catch {
+      setError('No se pudo cancelar la sesión.');
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="container" style={{ padding: '32px 24px 96px', maxWidth: 880 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -91,7 +109,20 @@ export function HostDashboardPage() {
             {state.session.code}
           </h1>
         </div>
-        <span className={`chip ${state.session.status === 'finished' ? 'ok' : 'accent'}`}>{state.session.status}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+          <span className={`chip ${state.session.status === 'finished' ? 'ok' : 'accent'}`}>{state.session.status}</span>
+          {state.session.status !== 'finished' && (
+            <button
+              type="button"
+              className="mono"
+              disabled={busy}
+              onClick={handleCancel}
+              style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.78rem' }}
+            >
+              cancelar sesión
+            </button>
+          )}
+        </div>
       </div>
 
       <ProgressRail progress={progress} currentOrder={current?.order ?? null} />

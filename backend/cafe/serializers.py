@@ -1,7 +1,10 @@
+from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 from rest_framework import serializers
 
-from .models import Case, Participant, Question, QuestionOption, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+from .models import Case, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+
+User = get_user_model()
 
 
 class TopicSerializer(serializers.ModelSerializer):
@@ -182,8 +185,17 @@ class CreateSessionQuestionSerializer(serializers.Serializer):
         return attrs
 
 
-class CreateSessionSerializer(serializers.Serializer):
+class QuizWriteSerializer(serializers.Serializer):
+    """Alta/edición de un cuestionario persistido: título + tema + con qué
+    docentes puntuales se comparte (por username, no todo-o-nada) + sus
+    preguntas (nacen atadas a este Quiz, ver CreateSessionQuestionSerializer).
+    En una edición, `questions` reemplaza por completo las anteriores."""
+
     topic_id = serializers.IntegerField()
+    title = serializers.CharField(max_length=200)
+    shared_with_usernames = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list
+    )
     questions = CreateSessionQuestionSerializer(many=True)
 
     def validate_topic_id(self, value):
@@ -193,8 +205,65 @@ class CreateSessionSerializer(serializers.Serializer):
 
     def validate_questions(self, value):
         if not value:
-            raise serializers.ValidationError('La sesión necesita al menos una pregunta.')
+            raise serializers.ValidationError('El cuestionario necesita al menos una pregunta.')
         return value
+
+    def validate_shared_with_usernames(self, value):
+        usernames = [u.strip() for u in value if u.strip()]
+        existing = set(User.objects.filter(username__in=usernames).values_list('username', flat=True))
+        missing = sorted(set(usernames) - existing)
+        if missing:
+            raise serializers.ValidationError(f'Usuario(s) inexistente(s): {", ".join(missing)}.')
+        return usernames
+
+
+class QuizSerializer(serializers.ModelSerializer):
+    topic = TopicSerializer(read_only=True)
+    host = serializers.CharField(source='host.username', read_only=True)
+    question_count = serializers.IntegerField(read_only=True)
+    shared_with = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Quiz
+        fields = ['id', 'title', 'topic', 'host', 'shared_with', 'question_count', 'created_at']
+
+    def get_shared_with(self, obj):
+        return list(obj.shared_with.values_list('username', flat=True))
+
+
+class QuizQuestionDetailSerializer(serializers.ModelSerializer):
+    """Una pregunta de un Quiz con su respuesta completa, para precargar el
+    form de edición — mismo shape que la escritura (CreateSessionQuestionSerializer)
+    más `id`/`order` de solo lectura."""
+
+    options = QuestionOptionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Question
+        fields = [
+            'id', 'order', 'text', 'question_type', 'justification', 'options',
+            'points', 'duration_seconds', 'grace_seconds',
+        ]
+
+
+class QuizDetailSerializer(serializers.ModelSerializer):
+    """Detalle de un Quiz para el form de edición — docente-only (dueño),
+    a diferencia de QuizSerializer incluye las preguntas completas."""
+
+    topic = TopicSerializer(read_only=True)
+    host = serializers.CharField(source='host.username', read_only=True)
+    shared_with = serializers.SerializerMethodField()
+    questions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Quiz
+        fields = ['id', 'title', 'topic', 'host', 'shared_with', 'questions', 'created_at']
+
+    def get_shared_with(self, obj):
+        return list(obj.shared_with.values_list('username', flat=True))
+
+    def get_questions(self, obj):
+        return QuizQuestionDetailSerializer(obj.questions.order_by('order'), many=True).data
 
 
 class QuizSessionSerializer(serializers.ModelSerializer):

@@ -1,22 +1,25 @@
+from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
-from .models import Answer, Case, Participant, Question, QuestionOption, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
     CaseWriteSerializer,
-    CreateSessionSerializer,
     JoinSessionSerializer,
     ParticipantSerializer,
     QuestionPublicSerializer,
     QuestionSerializer,
+    QuizDetailSerializer,
+    QuizSerializer,
     QuizSessionSerializer,
+    QuizWriteSerializer,
     SessionQuestionSerializer,
     StudentPreferencesSerializer,
     StudentSerializer,
@@ -26,6 +29,8 @@ from .serializers import (
     TopicSerializer,
 )
 from .utils import generate_session_code
+
+User = get_user_model()
 
 
 def _time_remaining(session_question):
@@ -47,16 +52,12 @@ def _speed_factor(elapsed_seconds, duration_seconds):
 
 
 def _leaderboard(session):
-    participants = (
-        session.participants.select_related('student')
-        .annotate(total_score=Sum('answers__score'))
-        .order_by('-total_score', 'student__full_name')
-    )
+    participants = session.participants.select_related('student').order_by('-total_score', 'student__full_name')
     return [
         {
             'legajo': p.student.legajo,
             'full_name': p.student.full_name,
-            'total_score': p.total_score or 0,
+            'total_score': p.total_score,
         }
         for p in participants
     ]
@@ -79,7 +80,37 @@ def _tally(session_question):
 
 
 def _current_question(session):
-    return session.session_questions.filter(started_at__isnull=False).order_by('-order').first()
+    return session.session_questions.filter(started_at__isnull=False).order_by('-question__order').first()
+
+
+def _create_quiz_questions(quiz, topic_id, questions_data):
+    """Crea las Question/QuestionOption de un Quiz a partir de la data ya
+    validada por CreateSessionQuestionSerializer — usado tanto al crear como
+    al editar (donde las preguntas anteriores ya se borraron antes de llamar
+    esto)."""
+    for index, item in enumerate(questions_data):
+        question = Question.objects.create(
+            topic_id=topic_id,
+            quiz=quiz,
+            order=index + 1,
+            text=item['text'],
+            question_type=item['question_type'],
+            justification=item['justification'],
+            points=item['points'],
+            duration_seconds=item['duration_seconds'],
+            grace_seconds=item['grace_seconds'],
+        )
+        is_fill_blank = item['question_type'] == Question.Type.FILL_BLANK
+        QuestionOption.objects.bulk_create(
+            [
+                QuestionOption(
+                    question=question,
+                    text=o['text'],
+                    is_correct=True if is_fill_blank else o['is_correct'],
+                )
+                for o in item['options']
+            ]
+        )
 
 
 def _host_state_payload(session):
@@ -128,47 +159,93 @@ class CaseDetailView(generics.RetrieveAPIView):
     queryset = Case.objects.select_related('topic').prefetch_related('questions__options')
 
 
-class CreateSessionView(views.APIView):
-    """Arma un cuestionario y lo crea de una: las preguntas no vienen de un
-    banco reusable, se escriben ahí mismo y nacen atadas a esta sesión."""
+class QuizListCreateView(views.APIView):
+    """Cuestionarios persistidos: propios + los que otros docentes marcaron
+    como compartidos. `post` arma uno nuevo escribiendo las preguntas ahí
+    mismo (no se eligen de un banco), quedan atadas a este Quiz."""
 
     permission_classes = [permissions.IsAuthenticated]
 
+    def get(self, request):
+        quizzes = (
+            Quiz.objects.select_related('topic', 'host')
+            .annotate(question_count=Count('questions'))
+            .filter(Q(host=request.user) | Q(shared_with=request.user))
+            .distinct()
+            .order_by('-created_at')
+        )
+        return Response(QuizSerializer(quizzes, many=True).data)
+
     def post(self, request):
-        serializer = CreateSessionSerializer(data=request.data)
+        serializer = QuizWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        shared_users = User.objects.filter(username__in=data['shared_with_usernames'])
+
+        with transaction.atomic():
+            quiz = Quiz.objects.create(topic_id=data['topic_id'], host=request.user, title=data['title'])
+            quiz.shared_with.set(shared_users)
+            _create_quiz_questions(quiz, data['topic_id'], data['questions'])
+
+        quiz.question_count = len(data['questions'])
+        return Response(QuizSerializer(quiz).data, status=status.HTTP_201_CREATED)
+
+
+class QuizDetailView(views.APIView):
+    """Detalle/edición/borrado de un cuestionario — solo quien lo creó puede
+    verlo acá, editarlo o eliminarlo (los docentes con los que se compartió
+    solo pueden listarlo y arrancar sesiones, ver QuizListCreateView/
+    QuizStartView). Eliminar borra en cascada sus sesiones jugadas y el
+    historial de puntajes asociado — decisión explícita para mantener esto
+    simple."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk, host=request.user)
+        return Response(QuizDetailSerializer(quiz).data)
+
+    def patch(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk, host=request.user)
+        serializer = QuizWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        shared_users = User.objects.filter(username__in=data['shared_with_usernames'])
+
+        with transaction.atomic():
+            quiz.title = data['title']
+            quiz.topic_id = data['topic_id']
+            quiz.save(update_fields=['title', 'topic'])
+            quiz.shared_with.set(shared_users)
+            quiz.questions.all().delete()
+            _create_quiz_questions(quiz, data['topic_id'], data['questions'])
+
+        quiz.question_count = len(data['questions'])
+        return Response(QuizSerializer(quiz).data)
+
+    def delete(self, request, pk):
+        quiz = get_object_or_404(Quiz, pk=pk, host=request.user)
+        quiz.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class QuizStartView(views.APIView):
+    """Arranca una corrida en vivo nueva de un cuestionario ya persistido —
+    esto es lo que permite reutilizarlo cuatrimestre a cuatrimestre sin
+    reescribir las preguntas."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        quiz = get_object_or_404(Quiz.objects.filter(Q(host=request.user) | Q(shared_with=request.user)), pk=pk)
 
         with transaction.atomic():
             session = QuizSession.objects.create(
-                code=generate_session_code(), topic_id=data['topic_id'], host=request.user
+                code=generate_session_code(), quiz=quiz, topic_id=quiz.topic_id, host=request.user
             )
-            for index, item in enumerate(data['questions']):
-                question = Question.objects.create(
-                    topic_id=data['topic_id'],
-                    text=item['text'],
-                    question_type=item['question_type'],
-                    justification=item['justification'],
-                )
-                is_fill_blank = item['question_type'] == Question.Type.FILL_BLANK
-                QuestionOption.objects.bulk_create(
-                    [
-                        QuestionOption(
-                            question=question,
-                            text=o['text'],
-                            is_correct=True if is_fill_blank else o['is_correct'],
-                        )
-                        for o in item['options']
-                    ]
-                )
-                SessionQuestion.objects.create(
-                    session=session,
-                    question=question,
-                    order=index + 1,
-                    points=item['points'],
-                    duration_seconds=item['duration_seconds'],
-                    grace_seconds=item['grace_seconds'],
-                )
+            SessionQuestion.objects.bulk_create(
+                [SessionQuestion(session=session, question=q) for q in quiz.questions.order_by('order')]
+            )
 
         return Response(QuizSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
@@ -202,7 +279,7 @@ class StartQuestionView(views.APIView):
     def post(self, request, code, order):
         session = get_object_or_404(QuizSession, code=code)
         self.check_object_permissions(request, session)
-        session_question = get_object_or_404(SessionQuestion, session=session, order=order)
+        session_question = get_object_or_404(SessionQuestion, session=session, question__order=order)
 
         session_question.started_at = timezone.now()
         session_question.revealed_at = None
@@ -221,7 +298,7 @@ class RevealQuestionView(views.APIView):
     def post(self, request, code, order):
         session = get_object_or_404(QuizSession, code=code)
         self.check_object_permissions(request, session)
-        session_question = get_object_or_404(SessionQuestion, session=session, order=order)
+        session_question = get_object_or_404(SessionQuestion, session=session, question__order=order)
 
         session_question.revealed_at = timezone.now()
         session_question.save(update_fields=['revealed_at'])
@@ -230,6 +307,12 @@ class RevealQuestionView(views.APIView):
 
 
 class FinishSessionView(views.APIView):
+    """Al finalizar se descarta el detalle de respuesta por pregunta
+    (Answer) — el puntaje total por participante ya quedó persistido en
+    Participant.total_score (se incrementa en vivo en SubmitAnswerView), así
+    que el leaderboard/historial no pierde nada, pero no queda para siempre
+    quién marcó qué opción en cada pregunta de cada sesión jugada."""
+
     permission_classes = [permissions.IsAuthenticated, IsSessionHost]
 
     def post(self, request, code):
@@ -237,7 +320,22 @@ class FinishSessionView(views.APIView):
         self.check_object_permissions(request, session)
         session.status = QuizSession.Status.FINISHED
         session.save(update_fields=['status'])
+        Answer.objects.filter(session_question__session=session).delete()
         return Response(QuizSessionSerializer(session).data)
+
+
+class CancelSessionView(views.APIView):
+    """Cancela una sesión iniciada por error o de la que el docente se
+    arrepiente — a diferencia de finalizar, acá no se guarda nada: se borra
+    la sesión entera (participantes, respuestas, progreso) en cascada."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSessionHost]
+
+    def post(self, request, code):
+        session = get_object_or_404(QuizSession, code=code)
+        self.check_object_permissions(request, session)
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SessionHostStateView(views.APIView):
@@ -261,7 +359,7 @@ class SessionQuestionListView(views.APIView):
         questions = (
             session.session_questions.select_related('question')
             .prefetch_related('question__options')
-            .order_by('order')
+            .order_by('question__order')
         )
         return Response(SessionQuestionSerializer(questions, many=True).data)
 
@@ -301,6 +399,16 @@ class SessionStudentStateView(views.APIView):
                     current.question.options.filter(is_correct=True).values_list('id', flat=True)
                 )
                 question_payload['justification'] = current.question.justification
+                own_answer = (
+                    Answer.objects.filter(participant=participant, session_question=current).first()
+                    if participant
+                    else None
+                )
+                if own_answer:
+                    question_payload['your_result'] = {
+                        'is_correct': own_answer.is_correct,
+                        'score': own_answer.score,
+                    }
             payload['current_question'] = question_payload
 
         return Response(payload)
@@ -310,7 +418,7 @@ class SubmitAnswerView(views.APIView):
     def post(self, request, code, order):
         session = get_object_or_404(QuizSession, code=code)
         session_question = get_object_or_404(
-            SessionQuestion.objects.select_related('question'), session=session, order=order
+            SessionQuestion.objects.select_related('question'), session=session, question__order=order
         )
         serializer = SubmitAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -374,10 +482,17 @@ class SubmitAnswerView(views.APIView):
         if option_ids:
             answer.selected_options.set(option_ids)
 
-        return Response(
-            {'is_correct': answer.is_correct, 'score': earned_points},
-            status=status.HTTP_201_CREATED,
-        )
+        # Se incrementa en vivo (no se recalcula sumando Answer más tarde)
+        # porque las Answer se purgan al finalizar la sesión — este campo
+        # es la única fuente de verdad del leaderboard/historial después.
+        participant.total_score = F('total_score') + earned_points
+        participant.save(update_fields=['total_score'])
+
+        # No devolvemos is_correct/score acá: el puntaje ya queda calculado y
+        # guardado, pero el alumno no se entera de si acertó hasta que el
+        # docente revele la pregunta (SessionStudentStateView es quien lo
+        # expone, y solo una vez revealed_at está seteado).
+        return Response({'submitted': True}, status=status.HTTP_201_CREATED)
 
 
 class StudentProfileView(views.APIView):
@@ -400,8 +515,9 @@ class StudentProfileView(views.APIView):
 
 
 class StudentHistoryView(views.APIView):
-    """Historial de un alumno a través de todas las sesiones en las que participó,
-    con el puntaje acumulado por cuestionario y el total across-sessions."""
+    """Historial de un alumno a través de todas las sesiones en las que
+    participó, con el puntaje total por sesión (Participant.total_score,
+    no el detalle de qué contestó en cada pregunta — eso no se persiste)."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -409,10 +525,6 @@ class StudentHistoryView(views.APIView):
         student = get_object_or_404(Student, legajo=legajo)
         participations = (
             student.participations.select_related('session', 'session__topic')
-            .annotate(
-                session_score=Sum('answers__score'),
-                questions_answered=Count('answers'),
-            )
             .order_by('-session__created_at')
         )
 
@@ -422,8 +534,7 @@ class StudentHistoryView(views.APIView):
                 'topic': TopicSerializer(p.session.topic).data,
                 'status': p.session.status,
                 'created_at': p.session.created_at,
-                'questions_answered': p.questions_answered,
-                'score': p.session_score or 0,
+                'score': p.total_score,
             }
             for p in participations
         ]
@@ -484,7 +595,7 @@ class StudentLeaderboardView(views.APIView):
 
     def get(self, request):
         students = Student.objects.annotate(
-            total_score=Sum('participations__answers__score'),
+            total_score=Sum('participations__total_score'),
             sessions_played=Count('participations', distinct=True),
         ).order_by('-total_score', 'full_name')
 
@@ -499,3 +610,65 @@ class StudentLeaderboardView(views.APIView):
                 for s in students
             ]
         )
+
+
+class QuizLeaderboardView(views.APIView):
+    """Ranking histórico de un cuestionario puntual, sumando el
+    Participant.total_score de todas las sesiones jugadas de ese Quiz (sin
+    importar qué docente las arrancó, mientras tenga acceso al Quiz). Si se
+    usó 'limpiar puntaje acumulado' sobre esas sesiones, esos Participant ya
+    no existen y no aparecen acá — por eso puede devolver vacío aunque el
+    cuestionario se haya jugado antes."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        quiz = get_object_or_404(Quiz.objects.filter(Q(host=request.user) | Q(shared_with=request.user)), pk=pk)
+        rows = (
+            Participant.objects.filter(session__quiz=quiz)
+            .values('student__legajo', 'student__full_name')
+            .annotate(total_score=Sum('total_score'), sessions_played=Count('id'))
+            .order_by('-total_score', 'student__full_name')
+        )
+        return Response(
+            [
+                {
+                    'legajo': row['student__legajo'],
+                    'full_name': row['student__full_name'],
+                    'total_score': row['total_score'] or 0,
+                    'sessions_played': row['sessions_played'],
+                }
+                for row in rows
+            ]
+        )
+
+
+class ClearMyHistoryView(views.APIView):
+    """Limpia el puntaje acumulado por los jugadores en las sesiones que ESTE
+    docente arrancó (propias o de un Quiz compartido por otro), acotado a
+    los cuestionarios puntuales que elija en `quiz_ids` — dropea los
+    Participant (donde vive total_score, y en cascada cualquier Answer que
+    quedara de una sesión todavía no finalizada), no las QuizSession en sí:
+    el historial de qué cuestionario se corrió cuándo se mantiene, solo se
+    resetea el puntaje. No toca sesiones de otros docentes ni los Quiz
+    persistidos."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        quiz_ids = request.data.get('quiz_ids')
+        if not isinstance(quiz_ids, list) or not quiz_ids:
+            return Response(
+                {
+                    'error': {
+                        'code': 'quiz_ids_required',
+                        'message': 'Elegí al menos un cuestionario para limpiar.',
+                        'details': {},
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        participants = Participant.objects.filter(session__host=request.user, session__quiz_id__in=quiz_ids)
+        deleted_participants = participants.count()
+        participants.delete()
+        return Response({'deleted_participants': deleted_participants})
