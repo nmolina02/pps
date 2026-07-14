@@ -104,7 +104,7 @@ function IdentifiedProfile() {
       </section>
 
       <section>
-        <button className="btn" onClick={forget} style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
+        <button className="btn danger" onClick={forget}>
           cerrar sesión
         </button>
       </section>

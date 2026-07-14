@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
-import { listTopics } from '../api/cases';
-import { createQuiz, deleteQuiz, getQuiz, startQuiz, updateQuiz } from '../api/docente';
+import { createQuiz, deleteQuiz, getQuiz, updateQuiz } from '../api/docente';
 import { QUESTION_TYPE_LABELS } from '../api/types';
-import type { CreateSessionQuestionInput, QuestionType, QuizWriteInput, Topic } from '../api/types';
+import type { CreateSessionQuestionInput, QuestionType, QuizWriteInput } from '../api/types';
+import { fileToResizedDataUri } from '../utils/image';
 
 function emptyOptions(type: QuestionType): CreateSessionQuestionInput['options'] {
   const count = type === 'fill_blank' ? 1 : 2;
-  return Array.from({ length: count }, () => ({ text: '', is_correct: false }));
+  return Array.from({ length: count }, () => ({ text: '', image: '', is_correct: false }));
 }
 
 function emptyDraft(): CreateSessionQuestionInput {
@@ -29,8 +29,6 @@ export function CreateSessionPage() {
   const { quizId } = useParams<{ quizId: string }>();
   const isEditing = Boolean(quizId);
 
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [topicId, setTopicId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [sharedUsernames, setSharedUsernames] = useState<string[]>([]);
   const [usernameInput, setUsernameInput] = useState('');
@@ -40,14 +38,9 @@ export function CreateSessionPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listTopics().then(setTopics).catch(() => setTopics([]));
-  }, []);
-
-  useEffect(() => {
     if (!docente || !quizId) return;
     getQuiz(docente.token, Number(quizId))
       .then((quiz) => {
-        setTopicId(quiz.topic.id);
         setTitle(quiz.title);
         setSharedUsernames(quiz.shared_with);
         setDrafts(
@@ -55,7 +48,7 @@ export function CreateSessionPage() {
             text: q.text,
             question_type: q.question_type,
             justification: q.justification,
-            options: q.options.map((o) => ({ text: o.text, is_correct: o.is_correct })),
+            options: q.options.map((o) => ({ text: o.text, image: o.image, is_correct: o.is_correct })),
             points: q.points,
             duration_seconds: q.duration_seconds,
             grace_seconds: q.grace_seconds,
@@ -85,11 +78,6 @@ export function CreateSessionPage() {
     );
   }
 
-  function handleTopicChange(nextTopicId: number | null) {
-    setTopicId(nextTopicId);
-    setDrafts([]);
-  }
-
   function addSharedUsername() {
     const username = usernameInput.trim();
     if (username && !sharedUsernames.includes(username)) {
@@ -116,6 +104,14 @@ export function CreateSessionPage() {
     }
   }
 
+  function handleCancel() {
+    const hasContent = title.trim().length > 0 || drafts.length > 0;
+    if (hasContent && !window.confirm('¿Cancelar? Se pierde lo que armaste hasta ahora, no se guarda nada.')) {
+      return;
+    }
+    navigate('/docente/cuestionarios');
+  }
+
   function addDraft() {
     setDrafts((prev) => [...prev, emptyDraft()]);
   }
@@ -134,7 +130,7 @@ export function CreateSessionPage() {
         if (i !== index) return d;
         const cleared = d.options.map((o) => ({ ...o, is_correct: false }));
         const minRows = nextType === 'fill_blank' ? 1 : 2;
-        while (cleared.length < minRows) cleared.push({ text: '', is_correct: false });
+        while (cleared.length < minRows) cleared.push({ text: '', image: '', is_correct: false });
         return { ...d, question_type: nextType, options: cleared };
       }),
     );
@@ -144,6 +140,14 @@ export function CreateSessionPage() {
     setDrafts((prev) =>
       prev.map((d, i) =>
         i !== draftIndex ? d : { ...d, options: d.options.map((o, oi) => (oi === optionIndex ? { ...o, text } : o)) },
+      ),
+    );
+  }
+
+  function updateOptionImage(draftIndex: number, optionIndex: number, image: string) {
+    setDrafts((prev) =>
+      prev.map((d, i) =>
+        i !== draftIndex ? d : { ...d, options: d.options.map((o, oi) => (oi === optionIndex ? { ...o, image } : o)) },
       ),
     );
   }
@@ -165,7 +169,7 @@ export function CreateSessionPage() {
 
   function addOption(draftIndex: number) {
     setDrafts((prev) =>
-      prev.map((d, i) => (i !== draftIndex ? d : { ...d, options: [...d.options, { text: '', is_correct: false }] })),
+      prev.map((d, i) => (i !== draftIndex ? d : { ...d, options: [...d.options, { text: '', image: '', is_correct: false }] })),
     );
   }
 
@@ -176,24 +180,29 @@ export function CreateSessionPage() {
   }
 
   async function handleSubmit() {
-    if (!docente || topicId === null || drafts.length === 0) return;
+    if (!docente || drafts.length === 0) return;
     if (!title.trim()) {
       setError('El cuestionario necesita un título.');
       return;
     }
 
     for (const draft of drafts) {
-      if (!draft.text.trim() || !draft.justification.trim()) {
-        setError('Todas las preguntas necesitan enunciado y justificación.');
+      const isSurvey = draft.question_type === 'survey';
+      if (!draft.text.trim() || (!isSurvey && !draft.justification.trim())) {
+        setError(
+          isSurvey ? 'Todas las preguntas necesitan enunciado.' : 'Todas las preguntas necesitan enunciado y justificación.',
+        );
         return;
       }
       const minOptions = draft.question_type === 'fill_blank' ? 1 : 2;
-      const trimmed = draft.options.map((o) => ({ ...o, text: o.text.trim() })).filter((o) => o.text.length > 0);
+      const trimmed = draft.options
+        .map((o) => ({ ...o, text: o.text.trim() }))
+        .filter((o) => (isSurvey ? o.text.length > 0 || o.image.length > 0 : o.text.length > 0));
       if (trimmed.length < minOptions) {
         setError(`Cada pregunta necesita al menos ${minOptions} opción(es).`);
         return;
       }
-      if (draft.question_type !== 'fill_blank') {
+      if (draft.question_type !== 'fill_blank' && !isSurvey) {
         const correctCount = trimmed.filter((o) => o.is_correct).length;
         if (draft.question_type === 'single_choice' && correctCount !== 1) {
           setError('Las preguntas de opción única necesitan exactamente una opción correcta.');
@@ -209,15 +218,19 @@ export function CreateSessionPage() {
     setCreating(true);
     setError(null);
     const payload: QuizWriteInput = {
-      topic_id: topicId,
       title: title.trim(),
       shared_with_usernames: sharedUsernames,
-      questions: drafts.map((d) => ({
-        ...d,
-        text: d.text.trim(),
-        justification: d.justification.trim(),
-        options: d.options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })).filter((o) => o.text),
-      })),
+      questions: drafts.map((d) => {
+        const isSurvey = d.question_type === 'survey';
+        return {
+          ...d,
+          text: d.text.trim(),
+          justification: d.justification.trim(),
+          options: d.options
+            .map((o) => ({ text: o.text.trim(), image: o.image, is_correct: o.is_correct }))
+            .filter((o) => (isSurvey ? o.text.length > 0 || o.image.length > 0 : o.text.length > 0)),
+        };
+      }),
     };
 
     if (isEditing && quizId) {
@@ -232,20 +245,11 @@ export function CreateSessionPage() {
       return;
     }
 
-    let newQuizId: number;
     try {
-      const quiz = await createQuiz(docente.token, payload);
-      newQuizId = quiz.id;
+      await createQuiz(docente.token, payload);
+      navigate('/docente/cuestionarios');
     } catch {
       setError('No se pudo guardar el cuestionario.');
-      setCreating(false);
-      return;
-    }
-    try {
-      const session = await startQuiz(docente.token, newQuizId);
-      navigate(`/docente/sala/${session.code}`);
-    } catch {
-      setError('El cuestionario se guardó, pero no se pudo iniciar la sesión. Podés iniciarla desde "cuestionarios".');
     } finally {
       setCreating(false);
     }
@@ -265,7 +269,7 @@ export function CreateSessionPage() {
           onChange={(e) => setTitle(e.target.value)}
           placeholder="nombre del cuestionario"
           className="mono"
-          style={{ ...inputStyle, maxWidth: 400 }}
+          style={{ ...inputStyle, width: '100%' }}
         />
 
         <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 16, marginBottom: 8 }}>
@@ -308,80 +312,77 @@ export function CreateSessionPage() {
         )}
       </section>
 
-      <section style={{ marginBottom: 28 }}>
-        <h3 style={{ marginBottom: 10 }}>1. Tema</h3>
-        <select
-          value={topicId ?? ''}
-          onChange={(e) => handleTopicChange(e.target.value ? Number(e.target.value) : null)}
-          className="mono"
-          style={{ ...selectStyle }}
-        >
-          <option value="">seleccionar…</option>
-          {topics.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
+      <section>
+        <h3 style={{ marginBottom: 14 }}>Preguntas ({drafts.length})</h3>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {drafts.map((draft, index) => (
+            <QuestionDraftEditor
+              key={index}
+              questionIndex={index}
+              draft={draft}
+              onChangeType={(t) => handleTypeChange(index, t)}
+              onChangeField={(patch) => updateDraft(index, patch)}
+              onChangeOptionText={(oi, text) => updateOptionText(index, oi, text)}
+              onChangeOptionImage={(oi, image) => updateOptionImage(index, oi, image)}
+              onToggleCorrect={(oi) => toggleCorrect(index, oi)}
+              onAddOption={() => addOption(index)}
+              onRemoveOption={(oi) => removeOption(index, oi)}
+              onRemove={() => removeDraft(index)}
+            />
           ))}
-        </select>
-      </section>
+        </div>
 
-      {topicId !== null && (
-        <section>
-          <h3 style={{ marginBottom: 14 }}>2. Preguntas ({drafts.length})</h3>
+        <button type="button" className="btn" style={{ marginTop: 16 }} onClick={addDraft}>
+          + agregar pregunta
+        </button>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {drafts.map((draft, index) => (
-              <QuestionDraftEditor
-                key={index}
-                questionIndex={index}
-                draft={draft}
-                onChangeType={(t) => handleTypeChange(index, t)}
-                onChangeField={(patch) => updateDraft(index, patch)}
-                onChangeOptionText={(oi, text) => updateOptionText(index, oi, text)}
-                onToggleCorrect={(oi) => toggleCorrect(index, oi)}
-                onAddOption={() => addOption(index)}
-                onRemoveOption={(oi) => removeOption(index, oi)}
-                onRemove={() => removeDraft(index)}
-              />
-            ))}
-          </div>
-
-          <button type="button" className="btn" style={{ marginTop: 16 }} onClick={addDraft}>
-            + agregar pregunta
-          </button>
-
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        {isEditing ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <button
+              type="button"
+              className="btn danger"
+              style={{ marginTop: 24 }}
+              onClick={handleDelete}
+            >
+              eliminar cuestionario
+            </button>
             <button
               className="btn primary"
               style={{ marginTop: 24 }}
               disabled={drafts.length === 0 || !title.trim() || creating}
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
             >
-              {creating
-                ? 'guardando…'
-                : isEditing
-                  ? 'guardar cambios →'
-                  : `guardar y arrancar (${drafts.length} pregunta${drafts.length === 1 ? '' : 's'}) →`}
+              {creating ? 'guardando…' : 'guardar cambios →'}
             </button>
-            {isEditing && (
-              <button
-                type="button"
-                className="btn"
-                style={{ marginTop: 24, borderColor: 'var(--danger)', color: 'var(--danger)' }}
-                onClick={handleDelete}
-              >
-                eliminar cuestionario
-              </button>
-            )}
           </div>
-          {error && (
-            <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: 12 }}>
-              <span className="status-dot danger" />
-              {error}
-            </p>
-          )}
-        </section>
-      )}
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <button
+              type="button"
+              className="btn danger"
+              disabled={creating}
+              onClick={handleCancel}
+              style={{ marginTop: 24 }}
+            >
+              cancelar
+            </button>
+            <button
+              className="btn primary"
+              disabled={drafts.length === 0 || !title.trim() || creating}
+              onClick={() => handleSubmit()}
+            >
+              {creating ? 'guardando…' : 'guardar →'}
+            </button>
+          </div>
+        )}
+        {error && (
+          <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: 12 }}>
+            <span className="status-dot danger" />
+            {error}
+          </p>
+        )}
+      </section>
     </div>
   );
 }
@@ -392,6 +393,7 @@ function QuestionDraftEditor({
   onChangeType,
   onChangeField,
   onChangeOptionText,
+  onChangeOptionImage,
   onToggleCorrect,
   onAddOption,
   onRemoveOption,
@@ -402,12 +404,25 @@ function QuestionDraftEditor({
   onChangeType: (t: QuestionType) => void;
   onChangeField: (patch: Partial<CreateSessionQuestionInput>) => void;
   onChangeOptionText: (optionIndex: number, text: string) => void;
+  onChangeOptionImage: (optionIndex: number, image: string) => void;
   onToggleCorrect: (optionIndex: number) => void;
   onAddOption: () => void;
   onRemoveOption: (optionIndex: number) => void;
   onRemove: () => void;
 }) {
   const minOptions = draft.question_type === 'fill_blank' ? 1 : 2;
+  const isSurvey = draft.question_type === 'survey';
+  const showCorrectMarker = draft.question_type !== 'fill_blank' && !isSurvey;
+
+  async function handleImagePick(optionIndex: number, file: File | undefined) {
+    if (!file) return;
+    try {
+      const dataUri = await fileToResizedDataUri(file);
+      onChangeOptionImage(optionIndex, dataUri);
+    } catch {
+      // si falla la lectura de la imagen, simplemente no se carga
+    }
+  }
 
   return (
     <div className="panel" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -445,38 +460,77 @@ function QuestionDraftEditor({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {draft.options.map((option, oi) => (
-          <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {draft.question_type !== 'fill_blank' && (
+          <div key={oi} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {showCorrectMarker && (
+                <input
+                  type={draft.question_type === 'single_choice' ? 'radio' : 'checkbox'}
+                  name={`correct-option-${questionIndex}`}
+                  checked={option.is_correct}
+                  onChange={() => onToggleCorrect(oi)}
+                  title="marcar como correcta"
+                />
+              )}
               <input
-                type={draft.question_type === 'single_choice' ? 'radio' : 'checkbox'}
-                name={`correct-option-${questionIndex}`}
-                checked={option.is_correct}
-                onChange={() => onToggleCorrect(oi)}
-                title="marcar como correcta"
+                value={option.text}
+                onChange={(e) => onChangeOptionText(oi, e.target.value)}
+                className="mono"
+                style={{ ...inputStyle, flex: 1 }}
+                placeholder={
+                  draft.question_type === 'fill_blank'
+                    ? 'respuesta aceptada'
+                    : isSurvey
+                      ? 'texto de la opción (opcional si hay imagen)'
+                      : 'texto de la opción'
+                }
               />
+              {isSurvey && (
+                <label
+                  className="mono"
+                  style={{ color: 'var(--accent-strong)', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                >
+                  {option.image ? 'cambiar imagen' : '+ imagen'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImagePick(oi, e.target.files?.[0])}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => onRemoveOption(oi)}
+                disabled={draft.options.length <= minOptions}
+                className="mono"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: draft.options.length <= minOptions ? 'var(--text-dim)' : 'var(--danger)',
+                  cursor: draft.options.length <= minOptions ? 'default' : 'pointer',
+                  fontSize: '0.85rem',
+                }}
+              >
+                quitar
+              </button>
+            </div>
+            {isSurvey && option.image && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 2 }}>
+                <img
+                  src={option.image}
+                  alt=""
+                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border-strong)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => onChangeOptionImage(oi, '')}
+                  className="mono"
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.78rem' }}
+                >
+                  quitar imagen
+                </button>
+              </div>
             )}
-            <input
-              value={option.text}
-              onChange={(e) => onChangeOptionText(oi, e.target.value)}
-              className="mono"
-              style={{ ...inputStyle, flex: 1 }}
-              placeholder={draft.question_type === 'fill_blank' ? 'respuesta aceptada' : 'texto de la opción'}
-            />
-            <button
-              type="button"
-              onClick={() => onRemoveOption(oi)}
-              disabled={draft.options.length <= minOptions}
-              className="mono"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: draft.options.length <= minOptions ? 'var(--text-dim)' : 'var(--danger)',
-                cursor: draft.options.length <= minOptions ? 'default' : 'pointer',
-                fontSize: '0.85rem',
-              }}
-            >
-              quitar
-            </button>
           </div>
         ))}
         <button
@@ -489,17 +543,25 @@ function QuestionDraftEditor({
         </button>
       </div>
 
-      <textarea
-        value={draft.justification}
-        onChange={(e) => onChangeField({ justification: e.target.value })}
-        placeholder="justificación (se muestra después de responder)"
-        className="mono"
-        style={textareaStyle}
-        rows={2}
-      />
+      {!isSurvey && (
+        <textarea
+          value={draft.justification}
+          onChange={(e) => onChangeField({ justification: e.target.value })}
+          placeholder="justificación (se muestra después de responder)"
+          className="mono"
+          style={textareaStyle}
+          rows={2}
+        />
+      )}
 
-      <div style={{ display: 'flex', gap: 16 }}>
-        <NumberField label="pts" value={draft.points} onChange={(v) => onChangeField({ points: v })} />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        {isSurvey ? (
+          <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+            encuesta · no suma ni resta puntos
+          </p>
+        ) : (
+          <NumberField label="pts" value={draft.points} onChange={(v) => onChangeField({ points: v })} />
+        )}
         <NumberField label="seg" value={draft.duration_seconds} onChange={(v) => onChangeField({ duration_seconds: v })} />
         <NumberField label="gracia s" value={draft.grace_seconds} onChange={(v) => onChangeField({ grace_seconds: v })} />
       </div>

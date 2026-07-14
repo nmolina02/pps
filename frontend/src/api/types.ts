@@ -9,7 +9,8 @@ export type VisualModel =
   | 'cpu_timeline'
   | 'resource_graph'
   | 'memory_map'
-  | 'fs_sequence';
+  | 'fs_sequence'
+  | 'priority_queue_timeline';
 
 export const VISUAL_MODEL_LABELS: Record<VisualModel, string> = {
   process_states: 'Diagrama de estados de procesos',
@@ -17,6 +18,7 @@ export const VISUAL_MODEL_LABELS: Record<VisualModel, string> = {
   resource_graph: 'Grafo de asignación de recursos',
   memory_map: 'Mapa de memoria virtual',
   fs_sequence: 'Secuencia de escritura en filesystem',
+  priority_queue_timeline: 'Cola de prioridad con línea de tiempo',
 };
 
 export interface CaseListItem {
@@ -24,20 +26,27 @@ export interface CaseListItem {
   slug: string;
   title: string;
   topic: Topic;
-  visual_model: VisualModel;
 }
 
-export type QuestionType = 'single_choice' | 'multiple_choice' | 'fill_blank';
+export interface CaseGraphic {
+  id: number;
+  topic: Topic;
+  data: unknown;
+}
+
+export type QuestionType = 'single_choice' | 'multiple_choice' | 'fill_blank' | 'survey';
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   single_choice: 'opción única',
   multiple_choice: 'opción múltiple',
   fill_blank: 'completar',
+  survey: 'encuesta',
 };
 
 export interface QuestionOption {
   id: number;
   text: string;
+  image: string;
   is_correct: boolean;
 }
 
@@ -54,7 +63,7 @@ export interface CaseDetail extends CaseListItem {
   scenario: string;
   guiding_questions: string;
   theory: string;
-  visual_model_data: unknown;
+  graphic: CaseGraphic | null;
   questions: Question[];
 }
 
@@ -80,8 +89,7 @@ export interface CaseWriteInput {
   scenario: string;
   guiding_questions: string;
   theory: string;
-  visual_model: VisualModel;
-  visual_model_data: unknown;
+  graphic_data: unknown;
 }
 
 export interface Paginated<T> {
@@ -98,7 +106,7 @@ export type SessionStatus = 'waiting' | 'active' | 'finished';
 export interface QuizSession {
   id: number;
   code: string;
-  topic: Topic;
+  quiz_title: string | null;
   status: SessionStatus;
   created_at: string;
 }
@@ -112,6 +120,7 @@ export interface Participant {
 export interface PublicQuestionOption {
   id: number;
   text: string;
+  image: string;
 }
 
 export interface PublicQuestion {
@@ -124,6 +133,7 @@ export interface PublicQuestion {
 export interface TallyRow {
   id?: number;
   text: string;
+  image?: string;
   votes: number;
 }
 
@@ -193,6 +203,7 @@ export interface SessionQuestionProgress {
 
 export interface CreateSessionQuestionOptionInput {
   text: string;
+  image: string;
   is_correct: boolean;
 }
 
@@ -211,7 +222,6 @@ export interface CreateSessionQuestionInput {
 export interface Quiz {
   id: number;
   title: string;
-  topic: Topic;
   host: string;
   shared_with: string[];
   question_count: number;
@@ -219,7 +229,6 @@ export interface Quiz {
 }
 
 export interface QuizWriteInput {
-  topic_id: number;
   title: string;
   shared_with_usernames: string[];
   questions: CreateSessionQuestionInput[];
@@ -240,7 +249,6 @@ export interface QuizQuestionDetail {
 export interface QuizDetail {
   id: number;
   title: string;
-  topic: Topic;
   host: string;
   shared_with: string[];
   questions: QuizQuestionDetail[];

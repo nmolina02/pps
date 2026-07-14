@@ -70,7 +70,7 @@ export function QuizLeaderboardPage() {
                 </span>
                 {row.full_name}
                 <span className="mono" style={{ color: 'var(--text-dim)', marginLeft: 10, fontSize: '0.78rem' }}>
-                  {row.sessions_played} sesión{row.sessions_played === 1 ? '' : 'es'}
+                  {row.sessions_played} sesi{row.sessions_played === 1 ? 'ón' : 'ones'}
                 </span>
               </span>
               <span className="mono" style={{ color: 'var(--accent-strong)' }}>

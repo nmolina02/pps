@@ -1,3 +1,5 @@
+import random
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
@@ -14,6 +16,7 @@ from .serializers import (
     CaseWriteSerializer,
     JoinSessionSerializer,
     ParticipantSerializer,
+    QuestionOptionPublicSerializer,
     QuestionPublicSerializer,
     QuestionSerializer,
     QuizDetailSerializer,
@@ -75,7 +78,7 @@ def _tally(session_question):
     return list(
         question.options.annotate(
             votes=Count('answer', filter=Q(answer__session_question=session_question))
-        ).values('id', 'text', 'votes')
+        ).values('id', 'text', 'image', 'votes')
     )
 
 
@@ -83,20 +86,30 @@ def _current_question(session):
     return session.session_questions.filter(started_at__isnull=False).order_by('-question__order').first()
 
 
-def _create_quiz_questions(quiz, topic_id, questions_data):
+def _shuffled_options(question, participant):
+    """Cada dispositivo ve las opciones en un orden random propio, pero
+    estable entre polls (no se remezcla en cada request) — el shuffle está
+    sembrado con participant+question, así que es determinístico por par."""
+    options = list(question.options.all())
+    if participant is not None:
+        random.Random(f'{participant.id}:{question.id}').shuffle(options)
+    return options
+
+
+def _create_quiz_questions(quiz, questions_data):
     """Crea las Question/QuestionOption de un Quiz a partir de la data ya
     validada por CreateSessionQuestionSerializer — usado tanto al crear como
     al editar (donde las preguntas anteriores ya se borraron antes de llamar
-    esto)."""
+    esto). Sin topic: un cuestionario no está atado a ningún Topic."""
     for index, item in enumerate(questions_data):
+        is_survey = item['question_type'] == Question.Type.SURVEY
         question = Question.objects.create(
-            topic_id=topic_id,
             quiz=quiz,
             order=index + 1,
             text=item['text'],
             question_type=item['question_type'],
             justification=item['justification'],
-            points=item['points'],
+            points=0 if is_survey else item['points'],
             duration_seconds=item['duration_seconds'],
             grace_seconds=item['grace_seconds'],
         )
@@ -106,7 +119,8 @@ def _create_quiz_questions(quiz, topic_id, questions_data):
                 QuestionOption(
                     question=question,
                     text=o['text'],
-                    is_correct=True if is_fill_blank else o['is_correct'],
+                    image=o['image'],
+                    is_correct=False if is_survey else (True if is_fill_blank else o['is_correct']),
                 )
                 for o in item['options']
             ]
@@ -156,7 +170,7 @@ class CaseListView(generics.ListAPIView):
 class CaseDetailView(generics.RetrieveAPIView):
     serializer_class = CaseDetailSerializer
     lookup_field = 'slug'
-    queryset = Case.objects.select_related('topic').prefetch_related('questions__options')
+    queryset = Case.objects.select_related('topic', 'graphic', 'graphic__topic').prefetch_related('questions__options')
 
 
 class QuizListCreateView(views.APIView):
@@ -168,7 +182,7 @@ class QuizListCreateView(views.APIView):
 
     def get(self, request):
         quizzes = (
-            Quiz.objects.select_related('topic', 'host')
+            Quiz.objects.select_related('host')
             .annotate(question_count=Count('questions'))
             .filter(Q(host=request.user) | Q(shared_with=request.user))
             .distinct()
@@ -183,9 +197,9 @@ class QuizListCreateView(views.APIView):
         shared_users = User.objects.filter(username__in=data['shared_with_usernames'])
 
         with transaction.atomic():
-            quiz = Quiz.objects.create(topic_id=data['topic_id'], host=request.user, title=data['title'])
+            quiz = Quiz.objects.create(host=request.user, title=data['title'])
             quiz.shared_with.set(shared_users)
-            _create_quiz_questions(quiz, data['topic_id'], data['questions'])
+            _create_quiz_questions(quiz, data['questions'])
 
         quiz.question_count = len(data['questions'])
         return Response(QuizSerializer(quiz).data, status=status.HTTP_201_CREATED)
@@ -214,11 +228,10 @@ class QuizDetailView(views.APIView):
 
         with transaction.atomic():
             quiz.title = data['title']
-            quiz.topic_id = data['topic_id']
-            quiz.save(update_fields=['title', 'topic'])
+            quiz.save(update_fields=['title'])
             quiz.shared_with.set(shared_users)
             quiz.questions.all().delete()
-            _create_quiz_questions(quiz, data['topic_id'], data['questions'])
+            _create_quiz_questions(quiz, data['questions'])
 
         quiz.question_count = len(data['questions'])
         return Response(QuizSerializer(quiz).data)
@@ -241,7 +254,7 @@ class QuizStartView(views.APIView):
 
         with transaction.atomic():
             session = QuizSession.objects.create(
-                code=generate_session_code(), quiz=quiz, topic_id=quiz.topic_id, host=request.user
+                code=generate_session_code(), quiz=quiz, host=request.user
             )
             SessionQuestion.objects.bulk_create(
                 [SessionQuestion(session=session, question=q) for q in quiz.questions.order_by('order')]
@@ -383,6 +396,9 @@ class SessionStudentStateView(views.APIView):
                     participant=participant, session_question=current
                 ).exists()
             )
+            shuffled = _shuffled_options(current.question, participant)
+            question_data = QuestionPublicSerializer(current.question).data
+            question_data['options'] = QuestionOptionPublicSerializer(shuffled, many=True).data
             question_payload = {
                 'order': current.order,
                 'points': current.points,
@@ -391,10 +407,17 @@ class SessionStudentStateView(views.APIView):
                 'accepts_answers': current.accepts_answers,
                 'has_answered': has_answered,
                 'revealed': current.revealed_at is not None,
-                'question': QuestionPublicSerializer(current.question).data,
+                'question': question_data,
             }
             if current.revealed_at is not None:
-                question_payload['tally'] = _tally(current)
+                tally_rows = _tally(current)
+                if current.question.question_type != Question.Type.FILL_BLANK:
+                    votes_by_id = {row['id']: row['votes'] for row in tally_rows}
+                    tally_rows = [
+                        {'id': o.id, 'text': o.text, 'image': o.image, 'votes': votes_by_id.get(o.id, 0)}
+                        for o in shuffled
+                    ]
+                question_payload['tally'] = tally_rows
                 question_payload['correct_option_ids'] = list(
                     current.question.options.filter(is_correct=True).values_list('id', flat=True)
                 )
@@ -524,14 +547,14 @@ class StudentHistoryView(views.APIView):
     def get(self, request, legajo):
         student = get_object_or_404(Student, legajo=legajo)
         participations = (
-            student.participations.select_related('session', 'session__topic')
+            student.participations.select_related('session', 'session__quiz')
             .order_by('-session__created_at')
         )
 
         sessions = [
             {
                 'session_code': p.session.code,
-                'topic': TopicSerializer(p.session.topic).data,
+                'quiz_title': p.session.quiz.title if p.session.quiz else None,
                 'status': p.session.status,
                 'created_at': p.session.created_at,
                 'score': p.total_score,
@@ -577,6 +600,9 @@ class CaseCreateView(views.APIView):
 
 
 class CaseUpdateView(views.APIView):
+    """Edición y borrado de un caso — el borrado se lleva puesto en cascada
+    su CaseGraphic (uno a uno) y sus preguntas de evaluación."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, slug):
@@ -585,6 +611,11 @@ class CaseUpdateView(views.APIView):
         serializer.is_valid(raise_exception=True)
         case = serializer.save()
         return Response(CaseDetailSerializer(case).data)
+
+    def delete(self, request, slug):
+        case = get_object_or_404(Case, slug=slug)
+        case.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class StudentLeaderboardView(views.APIView):

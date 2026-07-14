@@ -9,6 +9,7 @@ from .forms import StudentCSVImportForm
 from .models import (
     Answer,
     Case,
+    CaseGraphic,
     Participant,
     Question,
     QuestionOption,
@@ -92,12 +93,18 @@ class QuestionOptionInline(admin.TabularInline):
     extra = 2
 
 
+class CaseGraphicInline(admin.StackedInline):
+    model = CaseGraphic
+    extra = 0
+
+
 @admin.register(Case)
 class CaseAdmin(admin.ModelAdmin):
-    list_display = ['title', 'topic', 'visual_model']
-    list_filter = ['topic', 'visual_model']
+    list_display = ['title', 'topic']
+    list_filter = ['topic']
     search_fields = ['title', 'scenario']
     prepopulated_fields = {'slug': ('title',)}
+    inlines = [CaseGraphicInline]
 
 
 @admin.register(Question)

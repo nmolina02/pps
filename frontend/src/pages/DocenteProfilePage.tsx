@@ -52,12 +52,11 @@ export function DocenteProfilePage() {
 
         <section>
           <button
-            className="btn"
+            className="btn danger"
             onClick={() => {
               logout();
               navigate('/docente');
             }}
-            style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
           >
             cerrar sesión
           </button>

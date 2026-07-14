@@ -1,7 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
 import { listCases } from '../api/cases';
 import { useApi } from '../hooks/useApi';
-import { VISUAL_MODEL_LABELS } from '../api/types';
 import { ErrorPanel } from './TopicsPage';
 
 export function CasesPage() {
@@ -46,7 +45,6 @@ export function CasesPage() {
                   <span className="status-dot warn" />
                   <span style={{ color: 'var(--text)' }}>{c.title}</span>
                 </div>
-                <span className="chip">{VISUAL_MODEL_LABELS[c.visual_model]}</span>
               </div>
             </Link>
           ))}

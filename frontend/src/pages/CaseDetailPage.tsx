@@ -1,9 +1,9 @@
 import { Link, useParams } from 'react-router-dom';
 import { getCase } from '../api/cases';
 import { useApi } from '../hooks/useApi';
-import { VISUAL_MODEL_LABELS } from '../api/types';
 import { ErrorPanel } from './TopicsPage';
 import { QuestionCard } from '../components/QuestionCard';
+import { VisualModelPreview } from '../components/visualModels/VisualModelPreview';
 
 export function CaseDetailPage() {
   const { caseSlug } = useParams<{ caseSlug: string }>();
@@ -39,7 +39,12 @@ export function CaseDetailPage() {
         </span>
       </div>
       <h1 style={{ marginBottom: 14 }}>{c.title}</h1>
-      <span className="chip accent">{VISUAL_MODEL_LABELS[c.visual_model]}</span>
+
+      {c.graphic?.data != null && (
+        <div style={{ marginTop: 12 }}>
+          <VisualModelPreview data={c.graphic.data} />
+        </div>
+      )}
 
       <Section label="C" title="Caso de falla" text={c.scenario} />
       <Section label="A" title="Análisis guiado" text={c.guiding_questions} />

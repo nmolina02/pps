@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 from rest_framework import serializers
 
-from .models import Case, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+from .models import Case, CaseGraphic, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 
 User = get_user_model()
 
@@ -16,7 +16,7 @@ class TopicSerializer(serializers.ModelSerializer):
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuestionOption
-        fields = ['id', 'text', 'is_correct']
+        fields = ['id', 'text', 'image', 'is_correct']
 
 
 class QuestionOptionPublicSerializer(serializers.ModelSerializer):
@@ -24,7 +24,7 @@ class QuestionOptionPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QuestionOption
-        fields = ['id', 'text']
+        fields = ['id', 'text', 'image']
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -52,36 +52,76 @@ class CaseListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Case
-        fields = ['id', 'slug', 'title', 'topic', 'visual_model']
+        fields = ['id', 'slug', 'title', 'topic']
+
+
+class CaseGraphicSerializer(serializers.ModelSerializer):
+    """El gráfico de un caso, con identidad propia (id) y su Topic — el tipo
+    de diagrama no se persiste: el frontend lo matchea por la forma de `data`."""
+
+    topic = TopicSerializer(read_only=True)
+
+    class Meta:
+        model = CaseGraphic
+        fields = ['id', 'topic', 'data']
 
 
 class CaseDetailSerializer(serializers.ModelSerializer):
     topic = TopicSerializer(read_only=True)
     questions = QuestionSerializer(many=True, read_only=True)
+    graphic = serializers.SerializerMethodField()
 
     class Meta:
         model = Case
         fields = [
             'id', 'slug', 'title', 'topic', 'scenario', 'guiding_questions',
-            'theory', 'visual_model', 'visual_model_data', 'questions',
+            'theory', 'graphic', 'questions',
         ]
+
+    def get_graphic(self, obj):
+        graphic = getattr(obj, 'graphic', None)
+        return CaseGraphicSerializer(graphic).data if graphic else None
 
 
 class CaseWriteSerializer(serializers.ModelSerializer):
     """Alta/edición de un caso por el docente. El slug se genera del título y
-    nunca se reasigna en un update, para no romper links ya compartidos."""
+    nunca se reasigna en un update, para no romper links ya compartidos.
+    `graphic_data` es el JSON crudo del gráfico — vive en su propia fila
+    (CaseGraphic, uno a uno con el Case, mismo Topic), no elige tipo el
+    docente: se matchea por forma en el frontend."""
+
+    graphic_data = serializers.JSONField(required=False, allow_null=True, default=None)
 
     class Meta:
         model = Case
         fields = [
             'id', 'slug', 'topic', 'title', 'scenario', 'guiding_questions',
-            'theory', 'visual_model', 'visual_model_data',
+            'theory', 'graphic_data',
         ]
         read_only_fields = ['id', 'slug']
 
     def create(self, validated_data):
+        graphic_data = validated_data.pop('graphic_data', None)
         validated_data['slug'] = self._unique_slug(validated_data['title'])
-        return super().create(validated_data)
+        case = super().create(validated_data)
+        CaseGraphic.objects.create(case=case, topic=case.topic, data=graphic_data)
+        return case
+
+    def update(self, instance, validated_data):
+        has_graphic_data = 'graphic_data' in validated_data
+        graphic_data = validated_data.pop('graphic_data', None)
+        case = super().update(instance, validated_data)
+        graphic, _created = CaseGraphic.objects.get_or_create(case=case, defaults={'topic': case.topic})
+        update_fields = []
+        if graphic.topic_id != case.topic_id:
+            graphic.topic = case.topic
+            update_fields.append('topic')
+        if has_graphic_data:
+            graphic.data = graphic_data
+            update_fields.append('data')
+        if update_fields:
+            graphic.save(update_fields=update_fields)
+        return case
 
     @staticmethod
     def _unique_slug(title):
@@ -149,7 +189,8 @@ class JoinSessionSerializer(serializers.Serializer):
 
 
 class SessionQuestionOptionSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=255)
+    text = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    image = serializers.CharField(required=False, allow_blank=True, default='')
     is_correct = serializers.BooleanField(default=False)
 
 
@@ -160,25 +201,42 @@ class CreateSessionQuestionSerializer(serializers.Serializer):
 
     text = serializers.CharField()
     question_type = serializers.ChoiceField(choices=Question.Type.choices)
-    justification = serializers.CharField()
+    justification = serializers.CharField(required=False, allow_blank=True, default='')
     options = SessionQuestionOptionSerializer(many=True)
     points = serializers.IntegerField(min_value=0, max_value=10000, default=100)
     duration_seconds = serializers.IntegerField(min_value=5, max_value=300, default=20)
     grace_seconds = serializers.IntegerField(min_value=0, max_value=30, default=2)
 
     def validate(self, attrs):
-        is_fill_blank = attrs['question_type'] == Question.Type.FILL_BLANK
-        min_options = 1 if is_fill_blank else 2
+        question_type = attrs['question_type']
+        is_fill_blank = question_type == Question.Type.FILL_BLANK
+        is_survey = question_type == Question.Type.SURVEY
         options = attrs['options']
+
+        min_options = 1 if is_fill_blank else 2
         if len(options) < min_options:
             raise serializers.ValidationError({'options': f'Se necesitan al menos {min_options} opción(es).'})
+
+        if is_survey:
+            for o in options:
+                if not o['text'].strip() and not o['image'].strip():
+                    raise serializers.ValidationError({'options': 'Cada opción de una encuesta necesita texto o imagen.'})
+            return attrs
+
+        if not attrs['justification'].strip():
+            raise serializers.ValidationError({'justification': 'Este tipo de pregunta necesita una justificación.'})
+
+        for o in options:
+            if not o['text'].strip():
+                raise serializers.ValidationError({'options': 'Cada opción necesita texto.'})
+
         if not is_fill_blank:
             correct_count = sum(1 for o in options if o['is_correct'])
-            if attrs['question_type'] == Question.Type.SINGLE_CHOICE and correct_count != 1:
+            if question_type == Question.Type.SINGLE_CHOICE and correct_count != 1:
                 raise serializers.ValidationError(
                     {'options': 'Opción única necesita exactamente una opción correcta.'}
                 )
-            if attrs['question_type'] == Question.Type.MULTIPLE_CHOICE and correct_count < 1:
+            if question_type == Question.Type.MULTIPLE_CHOICE and correct_count < 1:
                 raise serializers.ValidationError(
                     {'options': 'Opción múltiple necesita al menos una opción correcta.'}
                 )
@@ -186,22 +244,17 @@ class CreateSessionQuestionSerializer(serializers.Serializer):
 
 
 class QuizWriteSerializer(serializers.Serializer):
-    """Alta/edición de un cuestionario persistido: título + tema + con qué
-    docentes puntuales se comparte (por username, no todo-o-nada) + sus
-    preguntas (nacen atadas a este Quiz, ver CreateSessionQuestionSerializer).
-    En una edición, `questions` reemplaza por completo las anteriores."""
+    """Alta/edición de un cuestionario persistido: título + con qué docentes
+    puntuales se comparte (por username, no todo-o-nada) + sus preguntas
+    (nacen atadas a este Quiz, ver CreateSessionQuestionSerializer). Sin
+    Topic — un cuestionario se arma por unidad de clase, no por tema. En una
+    edición, `questions` reemplaza por completo las anteriores."""
 
-    topic_id = serializers.IntegerField()
     title = serializers.CharField(max_length=200)
     shared_with_usernames = serializers.ListField(
         child=serializers.CharField(), required=False, default=list
     )
     questions = CreateSessionQuestionSerializer(many=True)
-
-    def validate_topic_id(self, value):
-        if not Topic.objects.filter(id=value).exists():
-            raise serializers.ValidationError('Topic inexistente.')
-        return value
 
     def validate_questions(self, value):
         if not value:
@@ -218,14 +271,13 @@ class QuizWriteSerializer(serializers.Serializer):
 
 
 class QuizSerializer(serializers.ModelSerializer):
-    topic = TopicSerializer(read_only=True)
     host = serializers.CharField(source='host.username', read_only=True)
     question_count = serializers.IntegerField(read_only=True)
     shared_with = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
-        fields = ['id', 'title', 'topic', 'host', 'shared_with', 'question_count', 'created_at']
+        fields = ['id', 'title', 'host', 'shared_with', 'question_count', 'created_at']
 
     def get_shared_with(self, obj):
         return list(obj.shared_with.values_list('username', flat=True))
@@ -250,14 +302,13 @@ class QuizDetailSerializer(serializers.ModelSerializer):
     """Detalle de un Quiz para el form de edición — docente-only (dueño),
     a diferencia de QuizSerializer incluye las preguntas completas."""
 
-    topic = TopicSerializer(read_only=True)
     host = serializers.CharField(source='host.username', read_only=True)
     shared_with = serializers.SerializerMethodField()
     questions = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
-        fields = ['id', 'title', 'topic', 'host', 'shared_with', 'questions', 'created_at']
+        fields = ['id', 'title', 'host', 'shared_with', 'questions', 'created_at']
 
     def get_shared_with(self, obj):
         return list(obj.shared_with.values_list('username', flat=True))
@@ -267,11 +318,11 @@ class QuizDetailSerializer(serializers.ModelSerializer):
 
 
 class QuizSessionSerializer(serializers.ModelSerializer):
-    topic = TopicSerializer(read_only=True)
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True, default=None)
 
     class Meta:
         model = QuizSession
-        fields = ['id', 'code', 'topic', 'status', 'created_at']
+        fields = ['id', 'code', 'quiz_title', 'status', 'created_at']
 
 
 class SessionQuestionSerializer(serializers.ModelSerializer):

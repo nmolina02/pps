@@ -131,7 +131,8 @@ export function PlayPage() {
     return (
       <Centered>
         <p className="mono" style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: 8 }}>
-          sala {state.session.code} · {state.session.topic.name}
+          sala {state.session.code}
+          {state.session.quiz_title ? ` · ${state.session.quiz_title}` : ''}
         </p>
         <p className="mono cursor" style={{ fontSize: '1.1rem' }}>
           esperando a que el docente inicie la primera pregunta
@@ -165,7 +166,7 @@ export function PlayPage() {
     <div className="container" style={{ padding: '40px 24px 72px', maxWidth: 640 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-          pregunta {String(q.order).padStart(2, '0')} · {q.points} pts
+          pregunta {String(q.order).padStart(2, '0')} · {q.question.question_type === 'survey' ? 'encuesta' : `${q.points} pts`}
         </p>
         {!q.revealed && (
           <span className="mono" style={{ fontSize: '1.3rem', color: displaySeconds !== null && displaySeconds <= 5 ? 'var(--danger)' : 'var(--accent)' }}>
@@ -174,7 +175,7 @@ export function PlayPage() {
         )}
       </div>
 
-      <h2 style={{ marginBottom: 20 }}>{q.question.text}</h2>
+      <h2 style={{ marginBottom: 20, whiteSpace: 'pre-wrap' }}>{q.question.text}</h2>
 
       {!q.revealed && !q.has_answered && !justSubmitted && q.accepts_answers && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -193,6 +194,78 @@ export function PlayPage() {
                 fontSize: '1rem',
               }}
             />
+          ) : q.question.options.some((opt) => opt.image) ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+              {q.question.options.map((opt) => {
+                const isMulti = q.question.question_type === 'multiple_choice';
+                const checked = selectedOptions.includes(opt.id);
+                return (
+                  <label
+                    key={opt.id}
+                    className="panel"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                      padding: 0,
+                      cursor: 'pointer',
+                      borderColor: checked ? 'var(--accent)' : 'var(--border)',
+                      boxShadow: checked ? '0 0 0 2px var(--accent)' : 'none',
+                      background: checked ? 'var(--accent-soft)' : 'var(--bg-panel)',
+                    }}
+                  >
+                    <input
+                      type={isMulti ? 'checkbox' : 'radio'}
+                      name="answer"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedOptions((prev) =>
+                          isMulti
+                            ? checked
+                              ? prev.filter((id) => id !== opt.id)
+                              : [...prev, opt.id]
+                            : [opt.id],
+                        );
+                      }}
+                      style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                    />
+                    <div style={{ position: 'relative', width: '100%', height: 150, background: 'var(--bg-inset)' }}>
+                      {opt.image ? (
+                        <img src={opt.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span className="mono" style={{ color: 'var(--text-dim)', fontSize: '0.78rem' }}>sin imagen</span>
+                        </div>
+                      )}
+                      {checked && (
+                        <span
+                          className="mono"
+                          style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            width: 26,
+                            height: 26,
+                            borderRadius: '50%',
+                            background: 'var(--accent)',
+                            color: '#16110a',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 700,
+                          }}
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    {opt.text && (
+                      <span style={{ color: 'var(--text)', padding: '10px 12px' }}>{opt.text}</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
           ) : (
             q.question.options.map((opt) => {
               const isMulti = q.question.question_type === 'multiple_choice';
@@ -258,7 +331,7 @@ export function PlayPage() {
 
       {q.revealed && (
         <div>
-          {q.your_result && (
+          {q.your_result && q.question.question_type !== 'survey' && (
             <StatusMessage
               tone={q.your_result.is_correct ? 'ok' : 'warn'}
               text={
@@ -283,8 +356,11 @@ export function PlayPage() {
                       transition: 'width .3s ease',
                     }}
                   />
-                  <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between' }}>
-                    <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)' }}>
+                  <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {row.image && (
+                        <img src={row.image} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 3 }} />
+                      )}
                       {isCorrect ? '✓ ' : ''}
                       {row.text}
                     </span>
@@ -297,7 +373,7 @@ export function PlayPage() {
             })}
           </div>
           {q.justification && (
-            <p style={{ marginTop: 16, color: 'var(--text-muted)', fontSize: '0.92rem' }}>{q.justification}</p>
+            <p style={{ marginTop: 16, color: 'var(--text-muted)', fontSize: '0.92rem', whiteSpace: 'pre-wrap' }}>{q.justification}</p>
           )}
           <p className="mono cursor" style={{ marginTop: 20, color: 'var(--text-dim)' }}>
             esperando la próxima pregunta

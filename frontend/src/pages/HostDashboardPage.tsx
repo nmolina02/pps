@@ -103,7 +103,7 @@ export function HostDashboardPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-            {state.session.topic.name} · {state.participant_count} conectados
+            {state.session.quiz_title ?? 'cuestionario'} · {state.participant_count} conectados
           </p>
           <h1 className="mono" style={{ fontSize: '2.4rem', letterSpacing: '0.12em', color: 'var(--accent)' }}>
             {state.session.code}
@@ -137,7 +137,8 @@ export function HostDashboardPage() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-                  pregunta {current.order} · {current.points} pts · {current.answers_received}/{state.participant_count} respondieron
+                  pregunta {current.order} · {current.question.question_type === 'survey' ? 'encuesta' : `${current.points} pts`} ·{' '}
+                  {current.answers_received}/{state.participant_count} respondieron
                 </p>
                 {!current.revealed && (
                   <span className="mono" style={{ color: 'var(--accent)' }}>
@@ -145,7 +146,7 @@ export function HostDashboardPage() {
                   </span>
                 )}
               </div>
-              <h2 style={{ marginBottom: 16 }}>{current.question.text}</h2>
+              <h2 style={{ marginBottom: 16, whiteSpace: 'pre-wrap' }}>{current.question.text}</h2>
               <TallyBars tally={current.tally} options={current.question.options} />
             </>
           ) : (
@@ -173,8 +174,7 @@ export function HostDashboardPage() {
             )}
             {(!current || current.revealed) && !nextQuestion && (
               <button
-                className="btn"
-                style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                className="btn danger"
                 disabled={busy}
                 onClick={() => withBusy(() => finishSession(docente.token, code))}
               >
@@ -258,7 +258,7 @@ function TallyBars({
   tally,
   options,
 }: {
-  tally: { id?: number; text: string; votes: number }[];
+  tally: { id?: number; text: string; image?: string; votes: number }[];
   options: { id: number; text: string; is_correct: boolean }[];
 }) {
   const maxVotes = Math.max(1, ...tally.map((r) => r.votes));
@@ -278,8 +278,9 @@ function TallyBars({
                 transition: 'width .3s ease',
               }}
             />
-            <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between' }}>
-              <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)' }}>
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {row.image && <img src={row.image} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 3 }} />}
                 {isCorrect ? '✓ ' : ''}
                 {row.text}
               </span>

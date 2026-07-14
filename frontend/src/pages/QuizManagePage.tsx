@@ -115,11 +115,9 @@ export function QuizManagePage() {
       {!clearMode && (
         <button
           type="button"
-          className="btn"
+          className="btn danger"
           onClick={enterClearMode}
           style={{
-            borderColor: 'var(--danger)',
-            color: 'var(--danger)',
             fontSize: '0.78rem',
             padding: '0.5em 0.9em',
             marginBottom: 24,
@@ -174,10 +172,10 @@ export function QuizManagePage() {
             </button>
             <button
               type="button"
-              className="btn"
+              className="btn danger"
               onClick={handleClearHistory}
               disabled={clearing || selectedIds.size === 0}
-              style={{ borderColor: 'var(--danger)', color: 'var(--danger)', fontSize: '0.78rem', padding: '0.45em 0.8em' }}
+              style={{ fontSize: '0.78rem', padding: '0.45em 0.8em' }}
             >
               {clearing ? 'limpiando…' : `limpiar (${selectedIds.size}) →`}
             </button>
@@ -233,9 +231,13 @@ export function QuizManagePage() {
                     )}
                   </div>
                   <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 4 }}>
-                    {quiz.topic.name} · {quiz.question_count} pregunta{quiz.question_count === 1 ? '' : 's'}
-                    {mine && quiz.shared_with.length > 0 && ` · compartido con: ${quiz.shared_with.join(', ')}`}
+                    {quiz.question_count} pregunta{quiz.question_count === 1 ? '' : 's'}
                   </p>
+                  {mine && quiz.shared_with.length > 0 && (
+                    <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 2 }}>
+                      compartido con: {quiz.shared_with.join(', ')}
+                    </p>
+                  )}
                 </div>
               </div>
               {!clearMode && (

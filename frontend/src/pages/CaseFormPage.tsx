@@ -2,9 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { listTopics, getCase } from '../api/cases';
-import { createCase, updateCase } from '../api/docente';
+import { createCase, deleteCase, updateCase } from '../api/docente';
 import { VISUAL_MODEL_LABELS } from '../api/types';
 import type { Topic, VisualModel } from '../api/types';
+import { VisualModelEditorPreview } from '../components/visualModels/VisualModelPreview';
+import { VISUAL_MODEL_EXAMPLES } from '../components/visualModels/types';
 
 const VISUAL_MODELS = Object.keys(VISUAL_MODEL_LABELS) as VisualModel[];
 
@@ -20,8 +22,8 @@ export function CaseFormPage() {
   const [scenario, setScenario] = useState('');
   const [guidingQuestions, setGuidingQuestions] = useState('');
   const [theory, setTheory] = useState('');
-  const [visualModel, setVisualModel] = useState<VisualModel>(VISUAL_MODELS[0]);
-  const [visualModelData, setVisualModelData] = useState('');
+  const [graphicData, setGraphicData] = useState('');
+  const [exampleKind, setExampleKind] = useState<VisualModel>(VISUAL_MODELS[0]);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +41,7 @@ export function CaseFormPage() {
         setScenario(c.scenario);
         setGuidingQuestions(c.guiding_questions);
         setTheory(c.theory);
-        setVisualModel(c.visual_model);
-        setVisualModelData(c.visual_model_data ? JSON.stringify(c.visual_model_data, null, 2) : '');
+        setGraphicData(c.graphic?.data ? JSON.stringify(c.graphic.data, null, 2) : '');
       })
       .catch(() => setError('No se pudo cargar el caso.'))
       .finally(() => setLoading(false));
@@ -61,12 +62,12 @@ export function CaseFormPage() {
     e.preventDefault();
     if (!docente || topicId === null || !title.trim()) return;
 
-    let parsedVisualModelData: unknown = null;
-    if (visualModelData.trim()) {
+    let parsedGraphicData: unknown = null;
+    if (graphicData.trim()) {
       try {
-        parsedVisualModelData = JSON.parse(visualModelData);
+        parsedGraphicData = JSON.parse(graphicData);
       } catch {
-        setError('El modelo visual (JSON) no es válido.');
+        setError('El gráfico (JSON) no es válido.');
         return;
       }
     }
@@ -79,8 +80,7 @@ export function CaseFormPage() {
       scenario,
       guiding_questions: guidingQuestions,
       theory,
-      visual_model: visualModel,
-      visual_model_data: parsedVisualModelData,
+      graphic_data: parsedGraphicData,
     };
     try {
       if (isEditing && caseSlug) {
@@ -96,6 +96,32 @@ export function CaseFormPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!docente || !caseSlug) return;
+    const confirmed = window.confirm(`¿Eliminar "${title}"? También se borra su gráfico asociado.`);
+    if (!confirmed) return;
+    try {
+      await deleteCase(docente.token, caseSlug);
+      navigate('/docente/casos');
+    } catch {
+      setError('No se pudo eliminar el caso.');
+    }
+  }
+
+  function handleCancel() {
+    const hasContent =
+      title.trim().length > 0 ||
+      scenario.trim().length > 0 ||
+      guidingQuestions.trim().length > 0 ||
+      theory.trim().length > 0 ||
+      graphicData.trim().length > 0 ||
+      topicId !== null;
+    if (hasContent && !window.confirm('¿Cancelar? Se pierde lo que armaste hasta ahora, no se guarda nada.')) {
+      return;
+    }
+    navigate('/docente/casos');
+  }
+
   if (isEditing && loading) {
     return (
       <div className="container" style={{ padding: '80px 24px', textAlign: 'center' }}>
@@ -106,6 +132,14 @@ export function CaseFormPage() {
 
   if (isEditing && !loading && error && !title) {
     return <Navigate to="/docente/casos" replace />;
+  }
+
+  let parsedPreviewData: unknown = null;
+  let previewJsonInvalid = false;
+  try {
+    parsedPreviewData = graphicData.trim() ? JSON.parse(graphicData) : null;
+  } catch {
+    previewJsonInvalid = true;
   }
 
   return (
@@ -154,12 +188,23 @@ export function CaseFormPage() {
           <textarea value={theory} onChange={(e) => setTheory(e.target.value)} className="mono" style={textareaStyle} rows={5} />
         </Field>
 
-        <Field label="Modelo visual">
-          <select
-            value={visualModel}
-            onChange={(e) => setVisualModel(e.target.value as VisualModel)}
+        <Field label="Gráfico del caso (JSON, opcional)">
+          <textarea
+            value={graphicData}
+            onChange={(e) => setGraphicData(e.target.value)}
             className="mono"
-            style={selectStyle}
+            style={textareaStyle}
+            rows={8}
+            placeholder="{}"
+          />
+        </Field>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={exampleKind}
+            onChange={(e) => setExampleKind(e.target.value as VisualModel)}
+            className="mono"
+            style={{ ...selectStyle, minWidth: 0 }}
           >
             {VISUAL_MODELS.map((vm) => (
               <option key={vm} value={vm}>
@@ -167,20 +212,39 @@ export function CaseFormPage() {
               </option>
             ))}
           </select>
-        </Field>
-
-        <Field label="Datos del modelo visual (JSON, opcional)">
-          <textarea
-            value={visualModelData}
-            onChange={(e) => setVisualModelData(e.target.value)}
+          <button
+            type="button"
             className="mono"
-            style={textareaStyle}
-            rows={4}
-            placeholder="{}"
-          />
+            onClick={() => setGraphicData(JSON.stringify(VISUAL_MODEL_EXAMPLES[exampleKind], null, 2))}
+            style={{ background: 'none', border: 'none', color: 'var(--accent-strong)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+          >
+            cargar ejemplo →
+          </button>
+        </div>
+        <p className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: -12 }}>
+          no hace falta elegir el tipo de gráfico a mano — se detecta solo, según la forma del JSON.
+        </p>
+
+        <Field label="Previsualización">
+          {previewJsonInvalid ? (
+            <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>
+              El JSON tiene un error de sintaxis, corregilo para ver la previsualización.
+            </p>
+          ) : (
+            <VisualModelEditorPreview data={parsedPreviewData} />
+          )}
         </Field>
 
-        <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          {isEditing ? (
+            <button type="button" className="btn danger" onClick={handleDelete}>
+              eliminar caso
+            </button>
+          ) : (
+            <button type="button" className="btn danger" disabled={saving} onClick={handleCancel}>
+              cancelar
+            </button>
+          )}
           <button type="submit" className="btn primary" disabled={saving || topicId === null || !title.trim()}>
             {saving ? 'guardando…' : isEditing ? 'guardar cambios →' : 'crear caso →'}
           </button>

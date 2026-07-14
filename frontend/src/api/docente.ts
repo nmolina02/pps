@@ -38,6 +38,10 @@ export function updateCase(
   });
 }
 
+export function deleteCase(token: string, slug: string): Promise<void> {
+  return apiFetch<void>(`/docente/cases/${encodeURIComponent(slug)}/`, { method: 'DELETE', token });
+}
+
 export function listQuizzes(token: string): Promise<Quiz[]> {
   return apiFetch<Quiz[]>('/docente/quizzes/', { token });
 }

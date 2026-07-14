@@ -1,6 +1,16 @@
+import unicodedata
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+
+def normalize_answer_text(value):
+    """Minúsculas y sin tildes/diacríticos, para que 'Proceso Zombie' == 'proceso zombie'
+    en preguntas de completar — no le importa al alumno tipear con o sin acento."""
+    value = unicodedata.normalize('NFKD', value or '')
+    value = ''.join(c for c in value if not unicodedata.combining(c))
+    return value.strip().lower()
 
 
 class Theme(models.TextChoices):
@@ -24,21 +34,12 @@ class Topic(models.Model):
 class Case(models.Model):
     """Un caso de falla del banco (metodología CAFE: Caso + Análisis guiado + Formalización)."""
 
-    class VisualModel(models.TextChoices):
-        PROCESS_STATES = 'process_states', 'Diagrama de estados de procesos'
-        CPU_TIMELINE = 'cpu_timeline', 'Línea de tiempo de planificación'
-        RESOURCE_GRAPH = 'resource_graph', 'Grafo de asignación de recursos'
-        MEMORY_MAP = 'memory_map', 'Mapa de memoria virtual'
-        FS_SEQUENCE = 'fs_sequence', 'Secuencia de escritura en filesystem'
-
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='cases')
     title = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
     scenario = models.TextField(help_text='Caso de falla: la situación problemática inicial (C).')
     guiding_questions = models.TextField(help_text='Preguntas de análisis guiado (A).')
     theory = models.TextField(help_text='Formalización conceptual (F).')
-    visual_model = models.CharField(max_length=30, choices=VisualModel.choices)
-    visual_model_data = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -48,11 +49,29 @@ class Case(models.Model):
         return self.title
 
 
+class CaseGraphic(models.Model):
+    """El gráfico visual de un caso de falla: vive en su propia tabla (no
+    embebido en Case) para tener identidad propia — id + topic — y se borra
+    en cascada junto con el Case (uno a uno). El tipo de diagrama
+    (process_states, cpu_timeline, etc.) no se elige a mano en un dropdown:
+    el frontend lo matchea estructuralmente contra la forma del JSON en
+    `data`, así que acá solo se persiste el dato crudo."""
+
+    case = models.OneToOneField(Case, on_delete=models.CASCADE, related_name='graphic')
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='graphics')
+    data = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'gráfico de {self.case.title}'
+
+
 class Quiz(models.Model):
     """Cuestionario persistido y reutilizable: se arma una vez y se puede
-    arrancar en sesiones en vivo distintas cuatrimestre a cuatrimestre."""
+    arrancar en sesiones en vivo distintas cuatrimestre a cuatrimestre. Sin
+    Topic propio a propósito — a diferencia de los Case, un cuestionario
+    suele armarse por unidad de clase, no por tema del programa."""
 
-    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='quizzes')
     host = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='quizzes')
     title = models.CharField(max_length=200)
     shared_with = models.ManyToManyField(
@@ -78,8 +97,9 @@ class Question(models.Model):
         SINGLE_CHOICE = 'single_choice', 'Opción única'
         MULTIPLE_CHOICE = 'multiple_choice', 'Opción múltiple'
         FILL_BLANK = 'fill_blank', 'Completar'
+        SURVEY = 'survey', 'Encuesta'
 
-    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='questions')
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='questions', blank=True, null=True)
     case = models.ForeignKey(
         Case, on_delete=models.SET_NULL, related_name='questions', blank=True, null=True
     )
@@ -99,17 +119,20 @@ class Question(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['topic', 'id']
+        ordering = ['id']
 
     def __str__(self):
         return self.text[:60]
 
     def score_ratio(self, *, option_ids=None, free_text=None):
         """Fracción de acierto en [0, 1]. Nunca negativa: una pregunta mal respondida
-        aporta 0 puntos, pero jamás resta del puntaje total acumulado del alumno."""
+        aporta 0 puntos, pero jamás resta del puntaje total acumulado del alumno.
+        Encuesta nunca puntúa: no hay opción 'correcta', es solo un pulso de opinión."""
+        if self.question_type == self.Type.SURVEY:
+            return 0.0
         if self.question_type == self.Type.FILL_BLANK:
-            accepted = {o.text.strip().lower() for o in self.options.filter(is_correct=True)}
-            return 1.0 if (free_text or '').strip().lower() in accepted else 0.0
+            accepted = {normalize_answer_text(o.text) for o in self.options.filter(is_correct=True)}
+            return 1.0 if normalize_answer_text(free_text) in accepted else 0.0
 
         correct_ids = set(self.options.filter(is_correct=True).values_list('id', flat=True))
         selected_ids = set(option_ids or [])
@@ -129,10 +152,13 @@ class Question(models.Model):
 
 
 class QuestionOption(models.Model):
-    """Opción de respuesta. Para preguntas 'fill_blank' representa un valor aceptado (is_correct=True)."""
+    """Opción de respuesta. Para preguntas 'fill_blank' representa un valor aceptado (is_correct=True).
+    `image` es un data URI opcional (solo tiene sentido en preguntas tipo 'survey'),
+    para no depender de infraestructura de almacenamiento de archivos."""
 
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='options')
-    text = models.CharField(max_length=255)
+    text = models.CharField(max_length=255, blank=True)
+    image = models.TextField(blank=True)
     is_correct = models.BooleanField(default=False)
 
     def __str__(self):
@@ -151,7 +177,7 @@ class QuizSession(models.Model):
     quiz = models.ForeignKey(
         Quiz, on_delete=models.CASCADE, related_name='sessions', blank=True, null=True
     )
-    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='sessions')
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='sessions', blank=True, null=True)
     host = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='quiz_sessions'
     )

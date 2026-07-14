@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { listCases } from '../api/cases';
-import { VISUAL_MODEL_LABELS } from '../api/types';
 import type { CaseListItem } from '../api/types';
 
 export function CaseManagePage() {
@@ -59,7 +58,7 @@ export function CaseManagePage() {
             <div>
               <p style={{ color: 'var(--text)' }}>{c.title}</p>
               <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 4 }}>
-                {c.topic.name} · {VISUAL_MODEL_LABELS[c.visual_model]}
+                {c.topic.name}
               </p>
             </div>
             <Link to={`/docente/casos/${c.slug}/editar`} className="mono" style={{ color: 'var(--accent-strong)', fontSize: '0.85rem' }}>
