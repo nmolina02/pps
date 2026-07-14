@@ -15,6 +15,7 @@ export function HostDashboardPage() {
   const [progress, setProgress] = useState<SessionQuestionProgress[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCorrect, setShowCorrect] = useState(true);
 
   const refreshProgress = useCallback(() => {
     if (!docente) return;
@@ -129,7 +130,10 @@ export function HostDashboardPage() {
 
       {state.session.status === 'finished' ? (
         <div className="panel" style={{ padding: '22px 24px', marginTop: 24 }}>
-          <p style={{ color: 'var(--text)' }}>Sesión finalizada.</p>
+          <p style={{ color: 'var(--text)', marginBottom: 16 }}>Sesión finalizada.</p>
+          <button type="button" className="btn primary" onClick={() => navigate('/docente/cuestionarios')}>
+            volver a cuestionarios →
+          </button>
         </div>
       ) : (
         <div className="panel panel-corners" style={{ padding: '22px 24px', marginTop: 24 }}>
@@ -146,8 +150,34 @@ export function HostDashboardPage() {
                   </span>
                 )}
               </div>
-              <h2 style={{ marginBottom: 16, whiteSpace: 'pre-wrap' }}>{current.question.text}</h2>
-              <TallyBars tally={current.tally} options={current.question.options} />
+              <h2 style={{ marginBottom: 10, whiteSpace: 'pre-wrap' }}>{current.question.text}</h2>
+              {current.question.question_type !== 'survey' && (
+                <label
+                  className="mono"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.74rem',
+                    color: 'var(--text-dim)',
+                    cursor: 'pointer',
+                    marginBottom: 12,
+                  }}
+                >
+                  <input type="checkbox" checked={showCorrect} onChange={(e) => setShowCorrect(e.target.checked)} />
+                  mostrar respuesta correcta
+                </label>
+              )}
+              {current.question.question_type === 'fill_blank' ? (
+                <FillBlankPanel
+                  tally={current.tally}
+                  options={current.question.options}
+                  showCorrect={showCorrect}
+                  revealed={current.revealed}
+                />
+              ) : (
+                <TallyBars tally={current.tally} options={current.question.options} showCorrect={showCorrect} />
+              )}
             </>
           ) : (
             <p className="mono" style={{ color: 'var(--text-dim)' }}>Todavía no arrancó ninguna pregunta.</p>
@@ -254,43 +284,125 @@ function ProgressRail({ progress, currentOrder }: { progress: SessionQuestionPro
   );
 }
 
+function FillBlankPanel({
+  tally,
+  options,
+  showCorrect,
+  revealed,
+}: {
+  tally: { id?: number; text: string; votes: number }[];
+  options: { id: number; text: string; is_correct: boolean }[];
+  showCorrect: boolean;
+  revealed: boolean;
+}) {
+  const accepted = options.filter((o) => o.is_correct).map((o) => o.text);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {showCorrect && accepted.length > 0 && (
+        <div className="panel" style={{ padding: '10px 14px', borderColor: 'var(--ok)', background: 'var(--ok-soft)' }}>
+          <p className="mono" style={{ fontSize: '0.72rem', color: 'var(--ok)', marginBottom: 4 }}>
+            respuesta{accepted.length > 1 ? 's' : ''} esperada{accepted.length > 1 ? 's' : ''}
+          </p>
+          <p className="mono" style={{ color: 'var(--ok)', fontSize: '0.9rem' }}>
+            {accepted.join(' · ')}
+          </p>
+        </div>
+      )}
+
+      {revealed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {tally.map((row, i) => (
+            <div key={row.id ?? i} className="panel" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+              <span className="mono" style={{ color: 'var(--text-muted)' }}>{row.text || '(vacío)'}</span>
+              <span className="mono" style={{ color: 'var(--text-dim)' }}>{row.votes}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TallyBars({
   tally,
   options,
+  showCorrect,
 }: {
   tally: { id?: number; text: string; image?: string; votes: number }[];
   options: { id: number; text: string; is_correct: boolean }[];
+  showCorrect: boolean;
 }) {
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const maxVotes = Math.max(1, ...tally.map((r) => r.votes));
   const correctIds = new Set(options.filter((o) => o.is_correct).map((o) => o.id));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {tally.map((row, i) => {
-        const isCorrect = row.id !== undefined && correctIds.has(row.id);
-        return (
-          <div key={row.id ?? i} className="panel" style={{ padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: `${(row.votes / maxVotes) * 100}%`,
-                background: isCorrect ? 'var(--ok-soft)' : 'var(--bg-inset)',
-                transition: 'width .3s ease',
-              }}
-            />
-            <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                {row.image && <img src={row.image} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 3 }} />}
-                {isCorrect ? '✓ ' : ''}
-                {row.text}
-              </span>
-              <span className="mono" style={{ color: 'var(--text-dim)' }}>
-                {row.votes}
-              </span>
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {tally.map((row, i) => {
+          const isCorrect = showCorrect && row.id !== undefined && correctIds.has(row.id);
+          return (
+            <div key={row.id ?? i} className="panel" style={{ padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${(row.votes / maxVotes) * 100}%`,
+                  background: isCorrect ? 'var(--ok-soft)' : 'var(--bg-inset)',
+                  transition: 'width .3s ease',
+                }}
+              />
+              <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {row.image && (
+                    <img
+                      src={row.image}
+                      alt=""
+                      onClick={() => setZoomedImage(row.image!)}
+                      style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, cursor: 'zoom-in', flexShrink: 0 }}
+                    />
+                  )}
+                  {isCorrect ? '✓ ' : ''}
+                  {row.text}
+                </span>
+                <span className="mono" style={{ color: 'var(--text-dim)' }}>
+                  {row.votes}
+                </span>
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+
+      {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            cursor: 'zoom-out',
+            padding: 32,
+          }}
+        >
+          <img
+            src={zoomedImage}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              objectFit: 'contain',
+              borderRadius: 6,
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+              cursor: 'default',
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 }

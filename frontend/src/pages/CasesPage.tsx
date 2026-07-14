@@ -14,7 +14,10 @@ export function CasesPage() {
 
   return (
     <div className="container" style={{ padding: '48px 24px 64px' }}>
-      <p className="mono prompt" style={{ color: 'var(--text-dim)', fontSize: '0.82rem', marginBottom: 10 }}>
+      <Link to="/" className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+        ← volver
+      </Link>
+      <p className="mono prompt" style={{ color: 'var(--text-dim)', fontSize: '0.82rem', marginTop: 18, marginBottom: 10 }}>
         cd /banco-de-casos/{topicSlug}
       </p>
       <h1 style={{ marginBottom: 32 }}>{topicName}</h1>

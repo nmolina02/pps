@@ -14,6 +14,7 @@ export function PlayPage() {
   const [participantId, setParticipantId] = useState<number | null>(null);
   const [state, setState] = useState<SessionStudentState | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [sessionGone, setSessionGone] = useState(false);
 
   const [selectedOptions, setSelectedOptions] = useState<number[]>([]);
   const [freeText, setFreeText] = useState('');
@@ -48,6 +49,7 @@ export function PlayPage() {
   useEffect(() => {
     if (participantId === null) return;
     let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval>;
 
     async function poll() {
       try {
@@ -63,16 +65,22 @@ export function PlayPage() {
           setSubmitError(null);
         }
         setDisplaySeconds(data.current_question?.time_remaining_seconds ?? null);
-      } catch {
-        // se reintenta en el próximo ciclo de polling
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          // el docente canceló la sesión: ya no tiene sentido seguir pollendo
+          setSessionGone(true);
+          clearInterval(intervalId);
+        }
+        // otros errores: se reintenta en el próximo ciclo de polling
       }
     }
 
     poll();
-    const id = setInterval(poll, POLL_INTERVAL_MS);
+    intervalId = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      clearInterval(intervalId);
     };
   }, [code, participantId]);
 
@@ -105,6 +113,20 @@ export function PlayPage() {
     );
   }
 
+  if (sessionGone) {
+    return (
+      <Centered>
+        <p className="mono" style={{ color: 'var(--danger)', marginBottom: 18 }}>
+          <span className="status-dot danger" />
+          El docente canceló la sesión.
+        </p>
+        <Link to="/jugar" className="btn primary">
+          salir →
+        </Link>
+      </Centered>
+    );
+  }
+
   if (!state) {
     return (
       <Centered>
@@ -120,7 +142,10 @@ export function PlayPage() {
           sesión finalizada
         </span>
         <h2 style={{ marginBottom: 10 }}>Gracias por participar</h2>
-        <p>Tu docente puede compartir los resultados en clase.</p>
+        <p style={{ marginBottom: 18 }}>Tu docente puede compartir los resultados en clase.</p>
+        <Link to="/jugar" className="btn primary">
+          salir →
+        </Link>
       </Centered>
     );
   }
