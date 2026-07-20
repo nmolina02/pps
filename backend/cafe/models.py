@@ -32,9 +32,12 @@ class Topic(models.Model):
 
 
 class Case(models.Model):
-    """Un caso de falla del banco (metodología CAFE: Caso + Análisis guiado + Formalización)."""
+    """Un caso de falla del banco (metodología CAFE: Caso + Análisis guiado + Formalización).
+    Cualquier docente puede leer/listar todos los casos, pero solo el autor
+    puede editarlo o borrarlo (ver IsCaseAuthor en permissions.py)."""
 
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name='cases')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='cases')
     title = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
     scenario = models.TextField(help_text='Caso de falla: la situación problemática inicial (C).')

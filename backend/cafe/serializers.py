@@ -70,11 +70,12 @@ class CaseDetailSerializer(serializers.ModelSerializer):
     topic = TopicSerializer(read_only=True)
     questions = QuestionSerializer(many=True, read_only=True)
     graphic = serializers.SerializerMethodField()
+    author = serializers.CharField(source='author.username', read_only=True)
 
     class Meta:
         model = Case
         fields = [
-            'id', 'slug', 'title', 'topic', 'scenario', 'guiding_questions',
+            'id', 'slug', 'title', 'topic', 'author', 'scenario', 'guiding_questions',
             'theory', 'graphic', 'questions',
         ]
 

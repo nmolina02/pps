@@ -8,8 +8,8 @@ export function CasesPage() {
   const state = useApi(() => listCases(topicSlug), [topicSlug]);
 
   const topicName =
-    state.status === 'ready' && state.data.results.length > 0
-      ? state.data.results[0].topic.name
+    state.status === 'ready' && state.data.length > 0
+      ? state.data[0].topic.name
       : topicSlug;
 
   return (
@@ -24,12 +24,12 @@ export function CasesPage() {
 
       {state.status === 'loading' && <p className="mono">cargando casos…</p>}
       {state.status === 'error' && <ErrorPanel message={state.error.message} />}
-      {state.status === 'ready' && state.data.results.length === 0 && (
+      {state.status === 'ready' && state.data.length === 0 && (
         <p className="mono">Todavía no hay casos cargados para este tema.</p>
       )}
       {state.status === 'ready' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {state.data.results.map((c) => (
+          {state.data.map((c) => (
             <Link key={c.id} to={`/cases/${c.slug}`}>
               <div
                 className="panel"

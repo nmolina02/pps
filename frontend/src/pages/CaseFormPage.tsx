@@ -3,12 +3,12 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { listTopics, getCase } from '../api/cases';
 import { createCase, deleteCase, updateCase } from '../api/docente';
-import { VISUAL_MODEL_LABELS } from '../api/types';
-import type { Topic, VisualModel } from '../api/types';
+import type { Topic } from '../api/types';
 import { VisualModelEditorPreview } from '../components/visualModels/VisualModelPreview';
-import { VISUAL_MODEL_EXAMPLES } from '../components/visualModels/types';
+import { examplesByTema, REGISTRY_EXAMPLES } from '../components/visualModels/registry';
 
-const VISUAL_MODELS = Object.keys(VISUAL_MODEL_LABELS) as VisualModel[];
+const EXAMPLE_GROUPS = examplesByTema();
+const FIRST_EXAMPLE = EXAMPLE_GROUPS[0]?.items[0]?.tipo ?? '';
 
 export function CaseFormPage() {
   const { docente } = useDocente();
@@ -23,10 +23,11 @@ export function CaseFormPage() {
   const [guidingQuestions, setGuidingQuestions] = useState('');
   const [theory, setTheory] = useState('');
   const [graphicData, setGraphicData] = useState('');
-  const [exampleKind, setExampleKind] = useState<VisualModel>(VISUAL_MODELS[0]);
+  const [exampleKind, setExampleKind] = useState<string>(FIRST_EXAMPLE);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [caseAuthor, setCaseAuthor] = useState<string | null>(null);
 
   useEffect(() => {
     listTopics().then(setTopics).catch(() => setTopics([]));
@@ -36,6 +37,7 @@ export function CaseFormPage() {
     if (!caseSlug) return;
     getCase(caseSlug)
       .then((c) => {
+        setCaseAuthor(c.author);
         setTopicId(c.topic.id);
         setTitle(c.title);
         setScenario(c.scenario);
@@ -134,6 +136,19 @@ export function CaseFormPage() {
     return <Navigate to="/docente/casos" replace />;
   }
 
+  if (isEditing && !loading && caseAuthor !== null && caseAuthor !== docente.username) {
+    return (
+      <div className="container" style={{ padding: '80px 24px', textAlign: 'center' }}>
+        <p style={{ marginBottom: 14 }}>
+          Este caso es de <strong>{caseAuthor}</strong> — solo el autor puede editarlo o borrarlo.
+        </p>
+        <Link to="/docente/casos" className="btn primary">
+          volver →
+        </Link>
+      </div>
+    );
+  }
+
   let parsedPreviewData: unknown = null;
   let previewJsonInvalid = false;
   try {
@@ -202,27 +217,32 @@ export function CaseFormPage() {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <select
             value={exampleKind}
-            onChange={(e) => setExampleKind(e.target.value as VisualModel)}
+            onChange={(e) => setExampleKind(e.target.value)}
             className="mono"
             style={{ ...selectStyle, minWidth: 0 }}
           >
-            {VISUAL_MODELS.map((vm) => (
-              <option key={vm} value={vm}>
-                {VISUAL_MODEL_LABELS[vm]}
-              </option>
+            {EXAMPLE_GROUPS.map((group) => (
+              <optgroup key={group.tema} label={group.tema}>
+                {group.items.map((item) => (
+                  <option key={item.tipo} value={item.tipo}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <button
             type="button"
             className="mono"
-            onClick={() => setGraphicData(JSON.stringify(VISUAL_MODEL_EXAMPLES[exampleKind], null, 2))}
+            onClick={() => setGraphicData(JSON.stringify(REGISTRY_EXAMPLES[exampleKind], null, 2))}
             style={{ background: 'none', border: 'none', color: 'var(--accent-strong)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
           >
             cargar ejemplo →
           </button>
         </div>
         <p className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: -12 }}>
-          no hace falta elegir el tipo de gráfico a mano — se detecta solo, según la forma del JSON.
+          no hace falta elegir el tipo de gráfico a mano para tu propio caso — poné un campo "tipo" en tu
+          JSON (o dejalo sin tipo y se intenta detectar solo). Los ejemplos de arriba son solo para empezar.
         </p>
 
         <Field label="Previsualización">

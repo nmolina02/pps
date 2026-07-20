@@ -60,6 +60,7 @@ export interface Question {
 }
 
 export interface CaseDetail extends CaseListItem {
+  author: string;
   scenario: string;
   guiding_questions: string;
   theory: string;
@@ -90,13 +91,6 @@ export interface CaseWriteInput {
   guiding_questions: string;
   theory: string;
   graphic_data: unknown;
-}
-
-export interface Paginated<T> {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
 }
 
 // ---- live quiz session ----

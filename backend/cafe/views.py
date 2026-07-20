@@ -9,7 +9,7 @@ from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
 from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
-from .permissions import IsSessionHost
+from .permissions import IsCaseAuthor, IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
@@ -158,19 +158,24 @@ class TopicListView(generics.ListAPIView):
 
 class CaseListView(generics.ListAPIView):
     serializer_class = CaseListSerializer
+    pagination_class = None
 
     def get_queryset(self):
         qs = Case.objects.select_related('topic').order_by('topic__name', 'title')
         topic_slug = self.request.query_params.get('topic')
         if topic_slug:
             qs = qs.filter(topic__slug=topic_slug)
+        if self.request.query_params.get('mine') == 'true':
+            if not self.request.user.is_authenticated:
+                return qs.none()
+            qs = qs.filter(author=self.request.user)
         return qs
 
 
 class CaseDetailView(generics.RetrieveAPIView):
     serializer_class = CaseDetailSerializer
     lookup_field = 'slug'
-    queryset = Case.objects.select_related('topic', 'graphic', 'graphic__topic').prefetch_related('questions__options')
+    queryset = Case.objects.select_related('topic', 'author', 'graphic', 'graphic__topic').prefetch_related('questions__options')
 
 
 class QuizListCreateView(views.APIView):
@@ -595,18 +600,20 @@ class CaseCreateView(views.APIView):
     def post(self, request):
         serializer = CaseWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        case = serializer.save()
+        case = serializer.save(author=request.user)
         return Response(CaseDetailSerializer(case).data, status=status.HTTP_201_CREATED)
 
 
 class CaseUpdateView(views.APIView):
-    """Edición y borrado de un caso — el borrado se lleva puesto en cascada
-    su CaseGraphic (uno a uno) y sus preguntas de evaluación."""
+    """Edición y borrado de un caso — solo el autor puede hacerlo (IsCaseAuthor).
+    El borrado se lleva puesto en cascada su CaseGraphic (uno a uno) y sus
+    preguntas de evaluación."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsCaseAuthor]
 
     def patch(self, request, slug):
         case = get_object_or_404(Case, slug=slug)
+        self.check_object_permissions(request, case)
         serializer = CaseWriteSerializer(case, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         case = serializer.save()
@@ -614,6 +621,7 @@ class CaseUpdateView(views.APIView):
 
     def delete(self, request, slug):
         case = get_object_or_404(Case, slug=slug)
+        self.check_object_permissions(request, case)
         case.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
