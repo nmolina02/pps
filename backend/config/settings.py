@@ -84,6 +84,12 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:5173'])
 
+# Vercel preview deploys get a random subdomain per branch/PR — no sirve
+# listarlas una por una en CORS_ALLOWED_ORIGINS, así que se matchean por regex
+# (ej. ^https://tu-proyecto-.*\.vercel\.app$). Vacío por default: no habilita
+# nada hasta que se configure explícitamente.
+CORS_ALLOWED_ORIGIN_REGEXES = env.list('CORS_ALLOWED_ORIGIN_REGEXES', default=[])
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
