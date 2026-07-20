@@ -114,6 +114,10 @@ class Question(models.Model):
     duration_seconds = models.PositiveSmallIntegerField(default=20)
     grace_seconds = models.PositiveSmallIntegerField(default=2)
     text = models.TextField()
+    image = models.TextField(
+        blank=True, default='',
+        help_text='Data URI opcional para el enunciado (mismo criterio que QuestionOption.image).',
+    )
     question_type = models.CharField(max_length=20, choices=Type.choices)
     justification = models.TextField(help_text='Explicación mostrada tras responder.')
     conceptual_error = models.CharField(

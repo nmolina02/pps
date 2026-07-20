@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { cancelSession, finishSession, getHostState, getSessionQuestions, revealQuestion, startQuestion } from '../api/host';
 import type { SessionHostState, SessionQuestionProgress } from '../api/types';
+import { ZoomableImage } from '../components/ZoomableImage';
 
 const HOST_POLL_INTERVAL_MS = 1000;
 
@@ -151,6 +152,12 @@ export function HostDashboardPage() {
                 )}
               </div>
               <h2 style={{ marginBottom: 10, whiteSpace: 'pre-wrap' }}>{current.question.text}</h2>
+              {current.question.image && (
+                <ZoomableImage
+                  src={current.question.image}
+                  thumbStyle={{ display: 'block', width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 6, marginBottom: 14, border: '1px solid var(--border-strong)' }}
+                />
+              )}
               {current.question.question_type !== 'survey' && (
                 <label
                   className="mono"
@@ -332,13 +339,11 @@ function TallyBars({
   options: { id: number; text: string; is_correct: boolean }[];
   showCorrect: boolean;
 }) {
-  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const maxVotes = Math.max(1, ...tally.map((r) => r.votes));
   const correctIds = new Set(options.filter((o) => o.is_correct).map((o) => o.id));
   return (
-    <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {tally.map((row, i) => {
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {tally.map((row, i) => {
           const isCorrect = showCorrect && row.id !== undefined && correctIds.has(row.id);
           return (
             <div key={row.id ?? i} className="panel" style={{ padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
@@ -354,11 +359,9 @@ function TallyBars({
               <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span className="mono" style={{ color: isCorrect ? 'var(--ok)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 10 }}>
                   {row.image && (
-                    <img
+                    <ZoomableImage
                       src={row.image}
-                      alt=""
-                      onClick={() => setZoomedImage(row.image!)}
-                      style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, cursor: 'zoom-in', flexShrink: 0 }}
+                      thumbStyle={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }}
                     />
                   )}
                   {isCorrect ? '✓ ' : ''}
@@ -369,40 +372,8 @@ function TallyBars({
                 </span>
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {zoomedImage && (
-        <div
-          onClick={() => setZoomedImage(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.85)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            cursor: 'zoom-out',
-            padding: 32,
-          }}
-        >
-          <img
-            src={zoomedImage}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              objectFit: 'contain',
-              borderRadius: 6,
-              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
-              cursor: 'default',
-            }}
-          />
-        </div>
-      )}
-    </>
+        );
+      })}
+    </div>
   );
 }

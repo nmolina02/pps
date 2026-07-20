@@ -107,6 +107,7 @@ def _create_quiz_questions(quiz, questions_data):
             quiz=quiz,
             order=index + 1,
             text=item['text'],
+            image=item['image'],
             question_type=item['question_type'],
             justification=item['justification'],
             points=0 if is_survey else item['points'],

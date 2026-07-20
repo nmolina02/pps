@@ -34,7 +34,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ['id', 'text', 'question_type', 'options', 'justification', 'conceptual_error']
+        fields = ['id', 'text', 'image', 'question_type', 'options', 'justification', 'conceptual_error']
 
 
 class QuestionPublicSerializer(serializers.ModelSerializer):
@@ -44,7 +44,7 @@ class QuestionPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ['id', 'text', 'question_type', 'options']
+        fields = ['id', 'text', 'image', 'question_type', 'options']
 
 
 class CaseListSerializer(serializers.ModelSerializer):
@@ -201,6 +201,7 @@ class CreateSessionQuestionSerializer(serializers.Serializer):
     `conceptual_error` (eso es de la evaluación de casos, otra funcionalidad)."""
 
     text = serializers.CharField()
+    image = serializers.CharField(required=False, allow_blank=True, default='')
     question_type = serializers.ChoiceField(choices=Question.Type.choices)
     justification = serializers.CharField(required=False, allow_blank=True, default='')
     options = SessionQuestionOptionSerializer(many=True)
@@ -294,7 +295,7 @@ class QuizQuestionDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
         fields = [
-            'id', 'order', 'text', 'question_type', 'justification', 'options',
+            'id', 'order', 'text', 'image', 'question_type', 'justification', 'options',
             'points', 'duration_seconds', 'grace_seconds',
         ]
 

@@ -14,6 +14,7 @@ function emptyOptions(type: QuestionType): CreateSessionQuestionInput['options']
 function emptyDraft(): CreateSessionQuestionInput {
   return {
     text: '',
+    image: '',
     question_type: 'single_choice',
     justification: '',
     options: emptyOptions('single_choice'),
@@ -46,6 +47,7 @@ export function CreateSessionPage() {
         setDrafts(
           quiz.questions.map((q) => ({
             text: q.text,
+            image: q.image,
             question_type: q.question_type,
             justification: q.justification,
             options: q.options.map((o) => ({ text: o.text, image: o.image, is_correct: o.is_correct })),
@@ -424,6 +426,16 @@ function QuestionDraftEditor({
     }
   }
 
+  async function handleStatementImagePick(file: File | undefined) {
+    if (!file) return;
+    try {
+      const dataUri = await fileToResizedDataUri(file, 960);
+      onChangeField({ image: dataUri });
+    } catch {
+      // si falla la lectura de la imagen, simplemente no se carga
+    }
+  }
+
   return (
     <div className="panel" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -457,6 +469,35 @@ function QuestionDraftEditor({
         style={textareaStyle}
         rows={2}
       />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {draft.image && (
+          <img
+            src={draft.image}
+            alt=""
+            style={{ maxWidth: 200, maxHeight: 120, objectFit: 'contain', borderRadius: 4, border: '1px solid var(--border-strong)' }}
+          />
+        )}
+        <label className="mono" style={{ color: 'var(--accent-strong)', cursor: 'pointer', fontSize: '0.85rem' }}>
+          {draft.image ? 'cambiar imagen del enunciado' : '+ imagen en el enunciado'}
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleStatementImagePick(e.target.files?.[0])}
+            style={{ display: 'none' }}
+          />
+        </label>
+        {draft.image && (
+          <button
+            type="button"
+            onClick={() => onChangeField({ image: '' })}
+            className="mono"
+            style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.78rem' }}
+          >
+            quitar imagen
+          </button>
+        )}
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {draft.options.map((option, oi) => (

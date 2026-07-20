@@ -4,6 +4,7 @@ import { useProfile } from '../context/ProfileContext';
 import { getStudentSessionState, joinSession, submitAnswer } from '../api/sessions';
 import type { SessionStudentState } from '../api/types';
 import { ApiError } from '../api/client';
+import { ZoomableImage } from '../components/ZoomableImage';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -200,7 +201,14 @@ export function PlayPage() {
         )}
       </div>
 
-      <h2 style={{ marginBottom: 20, whiteSpace: 'pre-wrap' }}>{q.question.text}</h2>
+      <h2 style={{ marginBottom: q.question.image ? 14 : 20, whiteSpace: 'pre-wrap' }}>{q.question.text}</h2>
+
+      {q.question.image && (
+        <ZoomableImage
+          src={q.question.image}
+          thumbStyle={{ display: 'block', width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 6, marginBottom: 20, border: '1px solid var(--border-strong)' }}
+        />
+      )}
 
       {!q.revealed && !q.has_answered && !justSubmitted && q.accepts_answers && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

@@ -53,6 +53,7 @@ export interface QuestionOption {
 export interface Question {
   id: number;
   text: string;
+  image: string;
   question_type: QuestionType;
   options: QuestionOption[];
   justification: string;
@@ -120,6 +121,7 @@ export interface PublicQuestionOption {
 export interface PublicQuestion {
   id: number;
   text: string;
+  image: string;
   question_type: QuestionType;
   options: PublicQuestionOption[];
 }
@@ -203,6 +205,7 @@ export interface CreateSessionQuestionOptionInput {
 
 export interface CreateSessionQuestionInput {
   text: string;
+  image: string;
   question_type: QuestionType;
   justification: string;
   options: CreateSessionQuestionOptionInput[];
@@ -232,6 +235,7 @@ export interface QuizQuestionDetail {
   id: number;
   order: number;
   text: string;
+  image: string;
   question_type: QuestionType;
   justification: string;
   options: QuestionOption[];
