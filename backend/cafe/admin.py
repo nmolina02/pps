@@ -1,6 +1,7 @@
 import csv
 import io
 
+from django.conf import settings
 from django.contrib import admin, messages
 from django.shortcuts import redirect, render
 from django.urls import path
@@ -19,6 +20,11 @@ from .models import (
     TeacherProfile,
     Topic,
 )
+
+admin.site.site_header = 'CAFE — administración'
+admin.site.site_title = 'CAFE admin'
+admin.site.index_title = 'Panel de administración'
+admin.site.site_url = settings.FRONTEND_URL
 
 
 @admin.register(Student)

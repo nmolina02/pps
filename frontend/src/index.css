@@ -77,6 +77,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -323,4 +324,84 @@ button {
   max-width: 980px;
   margin: 0 auto;
   padding: 0 24px;
+}
+
+/* ---- navegación responsive ---- */
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.nav-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+/* ---- mobile (<= 720px): nav en menú desplegable, inputs sin auto-zoom ---- */
+
+@media (max-width: 720px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .site-nav {
+    position: fixed;
+    top: 62px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+    padding: 10px 24px 16px;
+    transform: translateY(-6px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+    z-index: 9;
+  }
+
+  .site-nav.open {
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .site-nav > a,
+  .site-nav > div {
+    width: 100%;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .site-nav > a:last-child,
+  .site-nav > div:last-child {
+    border-bottom: none;
+  }
+
+  /* En iOS/Android, un input con font-size < 16px hace que el navegador
+   * zoomee al enfocarlo — y ese zoom queda pegado incluso después de
+   * navegar a otra pantalla. En vez de tratar de "deshacer" el zoom
+   * después, se evita que ocurra nunca. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }

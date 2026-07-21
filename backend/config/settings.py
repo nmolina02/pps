@@ -90,12 +90,19 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localho
 # nada hasta que se configure explícitamente.
 CORS_ALLOWED_ORIGIN_REGEXES = env.list('CORS_ALLOWED_ORIGIN_REGEXES', default=[])
 
+# Usado por el admin de Django para el link "Ver sitio" (apunta al frontend,
+# no a este backend — es una API sin páginas propias que mostrar).
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # project-level dir: se busca antes que los template dirs de las apps,
+        # así templates/admin/base_site.html pisa al de django.contrib.admin
+        # sin importar el orden de INSTALLED_APPS.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -116,6 +123,13 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
 }
+# Sin esto, cada request abre una conexión TCP+TLS nueva a Neon (está del
+# otro lado de internet, no en la misma red que Render) — con el polling de
+# la sesión en vivo (cada 1-2s) eso se nota mucho. Reutilizar la conexión
+# entre requests del mismo worker evita ese round-trip de handshake en cada
+# una. No afecta a sqlite en desarrollo (lo ignora).
+DATABASES['default']['CONN_MAX_AGE'] = 60
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 
 
 # Password validation

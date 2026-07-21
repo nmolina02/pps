@@ -31,6 +31,12 @@ urlpatterns = [
     path('students/<str:legajo>/profile/', views.StudentProfileView.as_view(), name='student-profile'),
     path('students/<str:legajo>/history/', views.StudentHistoryView.as_view(), name='student-history'),
     path('docente/perfil/', views.TeacherProfileView.as_view(), name='teacher-profile'),
+    path('docente/cambiar-password/', views.ChangePasswordView.as_view(), name='docente-change-password'),
+    path(
+        'docente/usuarios/<str:username>/existe/',
+        views.CheckTeacherUsernameView.as_view(),
+        name='docente-check-username',
+    ),
     path('docente/cases/', views.CaseCreateView.as_view(), name='docente-case-create'),
     path('docente/cases/<slug:slug>/', views.CaseUpdateView.as_view(), name='docente-case-update'),
     path('docente/quizzes/', views.QuizListCreateView.as_view(), name='quiz-list-create'),

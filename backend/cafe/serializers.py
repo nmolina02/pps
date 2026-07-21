@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.utils.text import slugify
 from rest_framework import serializers
 
@@ -174,6 +175,26 @@ class TeacherProfilePreferencesSerializer(serializers.ModelSerializer):
     def validate_avatar(self, value):
         if not 0 <= value <= 7:
             raise serializers.ValidationError('El avatar debe estar entre 0 y 7.')
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Cambio de contraseña autenticado (no es un flujo de 'olvidé mi
+    contraseña' por mail): el docente prueba que es dueño de la cuenta
+    reingresando la actual. El token de auth sigue siendo válido después
+    del cambio, no hace falta volver a loguearse."""
+
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_current_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError('La contraseña actual no es correcta.')
+        return value
+
+    def validate_new_password(self, value):
+        validate_password(value, user=self.context['request'].user)
         return value
 
 

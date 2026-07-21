@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
-import { createQuiz, deleteQuiz, getQuiz, updateQuiz } from '../api/docente';
+import { checkTeacherUsername, createQuiz, deleteQuiz, getQuiz, updateQuiz } from '../api/docente';
+import { ApiError } from '../api/client';
 import { QUESTION_TYPE_LABELS } from '../api/types';
 import type { CreateSessionQuestionInput, QuestionType, QuizWriteInput } from '../api/types';
 import { fileToResizedDataUri } from '../utils/image';
+
+function firstApiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const firstDetail = Object.values(err.details)[0];
+    const detailMessage = Array.isArray(firstDetail) ? firstDetail[0] : firstDetail;
+    if (typeof detailMessage === 'string') return detailMessage;
+    if (err.message && err.message !== 'An error occurred') return err.message;
+  }
+  return fallback;
+}
 
 function emptyOptions(type: QuestionType): CreateSessionQuestionInput['options'] {
   const count = type === 'fill_blank' ? 1 : 2;
@@ -33,6 +44,8 @@ export function CreateSessionPage() {
   const [title, setTitle] = useState('');
   const [sharedUsernames, setSharedUsernames] = useState<string[]>([]);
   const [usernameInput, setUsernameInput] = useState('');
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [checkingUsername, setCheckingUsername] = useState(false);
   const [drafts, setDrafts] = useState<CreateSessionQuestionInput[]>([]);
   const [loading, setLoading] = useState(isEditing);
   const [creating, setCreating] = useState(false);
@@ -80,12 +93,29 @@ export function CreateSessionPage() {
     );
   }
 
-  function addSharedUsername() {
+  async function addSharedUsername() {
+    if (!docente) return;
     const username = usernameInput.trim();
-    if (username && !sharedUsernames.includes(username)) {
-      setSharedUsernames((prev) => [...prev, username]);
+    if (!username) return;
+    if (username === docente.username || sharedUsernames.includes(username)) {
+      setUsernameInput('');
+      return;
     }
-    setUsernameInput('');
+    setUsernameError(null);
+    setCheckingUsername(true);
+    try {
+      const exists = await checkTeacherUsername(docente.token, username);
+      if (!exists) {
+        setUsernameError(`No existe ningún docente con el usuario "${username}".`);
+        return;
+      }
+      setSharedUsernames((prev) => [...prev, username]);
+      setUsernameInput('');
+    } catch {
+      setUsernameError('No se pudo verificar el usuario, probá de nuevo.');
+    } finally {
+      setCheckingUsername(false);
+    }
   }
 
   function removeSharedUsername(username: string) {
@@ -239,8 +269,8 @@ export function CreateSessionPage() {
       try {
         await updateQuiz(docente.token, Number(quizId), payload);
         navigate('/docente/cuestionarios');
-      } catch {
-        setError('No se pudieron guardar los cambios.');
+      } catch (err) {
+        setError(firstApiErrorMessage(err, 'No se pudieron guardar los cambios.'));
       } finally {
         setCreating(false);
       }
@@ -250,8 +280,8 @@ export function CreateSessionPage() {
     try {
       await createQuiz(docente.token, payload);
       navigate('/docente/cuestionarios');
-    } catch {
-      setError('No se pudo guardar el cuestionario.');
+    } catch (err) {
+      setError(firstApiErrorMessage(err, 'No se pudo guardar el cuestionario.'));
     } finally {
       setCreating(false);
     }
@@ -280,7 +310,10 @@ export function CreateSessionPage() {
         <div style={{ display: 'flex', gap: 8, maxWidth: 400 }}>
           <input
             value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
+            onChange={(e) => {
+              setUsernameInput(e.target.value);
+              if (usernameError) setUsernameError(null);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -291,10 +324,16 @@ export function CreateSessionPage() {
             className="mono"
             style={{ ...inputStyle, flex: 1 }}
           />
-          <button type="button" className="btn" onClick={addSharedUsername}>
-            agregar
+          <button type="button" className="btn" onClick={addSharedUsername} disabled={checkingUsername}>
+            {checkingUsername ? 'verificando…' : 'agregar'}
           </button>
         </div>
+        {usernameError && (
+          <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 8 }}>
+            <span className="status-dot danger" />
+            {usernameError}
+          </p>
+        )}
         {sharedUsernames.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             {sharedUsernames.map((username) => (

@@ -14,6 +14,7 @@ from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
     CaseWriteSerializer,
+    ChangePasswordSerializer,
     JoinSessionSerializer,
     ParticipantSerializer,
     QuestionOptionPublicSerializer,
@@ -593,6 +594,31 @@ class TeacherProfileView(views.APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(TeacherProfileSerializer(profile).data)
+
+
+class CheckTeacherUsernameView(views.APIView):
+    """Usado por el form de 'compartir cuestionario' para chequear, antes de
+    agregarlo a la lista, que el username de docente ingresado existe —
+    la validación real (que bloquea el guardado) ya está en
+    QuizWriteSerializer.validate_shared_with_usernames; esto es solo para
+    dar feedback inmediato en vez de recién al guardar."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, username):
+        exists = User.objects.filter(username=username).exists()
+        return Response({'exists': exists})
+
+
+class ChangePasswordView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data['new_password'])
+        request.user.save(update_fields=['password'])
+        return Response({'detail': 'Contraseña actualizada.'})
 
 
 class CaseCreateView(views.APIView):

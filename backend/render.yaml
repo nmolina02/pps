@@ -18,6 +18,8 @@ services:
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
         sync: false
+      - key: FRONTEND_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: PYTHON_VERSION

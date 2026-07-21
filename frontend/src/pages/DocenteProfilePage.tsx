@@ -1,6 +1,20 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { Avatar, AvatarPicker } from '../components/Avatar';
+import { changePassword } from '../api/docente';
+import { ApiError } from '../api/client';
+
+const fieldStyle: React.CSSProperties = {
+  background: 'var(--bg-inset)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 3,
+  padding: '0.6em 0.8em',
+  color: 'var(--text)',
+  fontSize: '0.9rem',
+  width: '100%',
+  maxWidth: 320,
+};
 
 export function DocenteProfilePage() {
   const { docente, setAvatar, setTheme, logout } = useDocente();
@@ -51,6 +65,11 @@ export function DocenteProfilePage() {
         </section>
 
         <section>
+          <h3 style={{ marginBottom: 12 }}>Cambiar contraseña</h3>
+          <ChangePasswordForm token={docente.token} />
+        </section>
+
+        <section>
           <button
             className="btn danger"
             onClick={() => {
@@ -63,6 +82,104 @@ export function DocenteProfilePage() {
         </section>
       </div>
     </div>
+  );
+}
+
+function ChangePasswordForm({ token }: { token: string }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(false);
+
+    if (newPassword.length < 8) {
+      setError('La nueva contraseña necesita al menos 8 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await changePassword(token, { current_password: currentPassword, new_password: newPassword });
+      setSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const firstDetail = Object.values(err.details)[0];
+        const detailMessage = Array.isArray(firstDetail) ? firstDetail[0] : firstDetail;
+        setError(typeof detailMessage === 'string' ? detailMessage : 'No se pudo cambiar la contraseña.');
+      } else {
+        setError('No se pudo cambiar la contraseña.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="panel" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 360 }}>
+      <label className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        contraseña actual
+        <input
+          type="password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          className="mono"
+          style={fieldStyle}
+          required
+        />
+      </label>
+      <label className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        nueva contraseña
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className="mono"
+          style={fieldStyle}
+          required
+        />
+      </label>
+      <label className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        confirmar nueva contraseña
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          className="mono"
+          style={fieldStyle}
+          required
+        />
+      </label>
+
+      {error && (
+        <p className="mono" style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>
+          <span className="status-dot danger" />
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="mono" style={{ color: 'var(--ok)', fontSize: '0.78rem' }}>
+          <span className="status-dot ok" />
+          Contraseña actualizada.
+        </p>
+      )}
+
+      <button type="submit" className="btn primary" disabled={submitting} style={{ alignSelf: 'flex-start' }}>
+        {submitting ? 'guardando…' : 'guardar nueva contraseña'}
+      </button>
+    </form>
   );
 }
 

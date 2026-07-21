@@ -22,6 +22,19 @@ export function updateTeacherPreferences(
   return apiFetch<TeacherProfile>('/docente/perfil/', { method: 'PATCH', body: prefs, token });
 }
 
+export function checkTeacherUsername(token: string, username: string): Promise<boolean> {
+  return apiFetch<{ exists: boolean }>(`/docente/usuarios/${encodeURIComponent(username)}/existe/`, {
+    token,
+  }).then((r) => r.exists);
+}
+
+export function changePassword(
+  token: string,
+  payload: { current_password: string; new_password: string },
+): Promise<{ detail: string }> {
+  return apiFetch<{ detail: string }>('/docente/cambiar-password/', { method: 'POST', body: payload, token });
+}
+
 export function createCase(token: string, payload: CaseWriteInput): Promise<CaseDetail> {
   return apiFetch<CaseDetail>('/docente/cases/', { method: 'POST', body: payload, token });
 }

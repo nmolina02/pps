@@ -1,0 +1,260 @@
+/* Reskin del admin de Django con la misma paleta e identidad tipográfica del
+ * frontend (frontend/src/index.css) — incluye claro/oscuro real, siguiendo
+ * el mismo mecanismo que ya usa el admin nativo desde Django 5 (CSS custom
+ * properties + toggle de 3 estados auto/claro/oscuro vía html[data-theme]).
+ * Estructura calcada de admin/css/dark_mode.css: variables claras por
+ * default (:root / [data-theme="light"]), oscuras explícitas
+ * ([data-theme="dark"]) y oscuras automáticas por preferencia del SO
+ * (@media prefers-color-scheme: dark, solo cuando el toggle está en "auto"). */
+
+:root,
+html[data-theme='light'] {
+  --primary: #a6650c;
+  --secondary: #fbfaf5;
+  --accent: #8a5309;
+  --primary-fg: #fff8ec;
+
+  --body-fg: #201d16;
+  --body-bg: #f3f1ea;
+  --body-quiet-color: #5c5747;
+  --body-medium-color: #443f33;
+  --body-loud-color: #201d16;
+
+  --header-color: #8a5309;
+  --header-branding-color: var(--accent);
+  --header-bg: #ffffff;
+  --header-link-color: #201d16;
+
+  --breadcrumbs-fg: #5c5747;
+  --breadcrumbs-link-fg: #201d16;
+  --breadcrumbs-bg: #fbfaf5;
+
+  --link-fg: #a6650c;
+  --link-hover-color: #8a5309;
+  --link-selected-fg: #8a5309;
+
+  --hairline-color: #ddd8c9;
+  --border-color: #c2bba5;
+
+  --error-fg: #c53f35;
+
+  --message-success-bg: rgba(26, 143, 99, 0.14);
+  --message-warning-bg: rgba(166, 101, 12, 0.14);
+  --message-error-bg: rgba(197, 63, 53, 0.14);
+
+  --darkened-bg: #ece9de;
+  --selected-bg: #fbfaf5;
+  --selected-row: rgba(166, 101, 12, 0.1);
+
+  --button-fg: #fff8ec;
+  --button-bg: #a6650c;
+  --button-hover-bg: #8a5309;
+  --default-button-bg: #fbfaf5;
+  --default-button-hover-bg: #ddd8c9;
+  --close-button-bg: #c2bba5;
+  --close-button-hover-bg: #8a8471;
+  --delete-button-bg: #c53f35;
+  --delete-button-hover-bg: #a83329;
+
+  --object-tools-fg: #fff8ec;
+  --object-tools-bg: #a6650c;
+  --object-tools-hover-bg: #8a5309;
+
+  --font-family-primary: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-family-monospace: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  --primary: #ffb020;
+  --secondary: #171d24;
+  --accent: #ffcb6b;
+  --primary-fg: #16110a;
+
+  --body-fg: #e8ecf1;
+  --body-bg: #0b0e11;
+  --body-quiet-color: #8b98a8;
+  --body-medium-color: #b3bccb;
+  --body-loud-color: #e8ecf1;
+
+  --header-color: #ffcb6b;
+  --header-branding-color: var(--accent);
+  --header-bg: #12161b;
+  --header-link-color: #e8ecf1;
+
+  --breadcrumbs-fg: #8b98a8;
+  --breadcrumbs-link-fg: #e8ecf1;
+  --breadcrumbs-bg: #171d24;
+
+  --link-fg: #ffb020;
+  --link-hover-color: #ffcb6b;
+  --link-selected-fg: #ffcb6b;
+
+  --hairline-color: #232a33;
+  --border-color: #37424f;
+
+  --error-fg: #ff6b6b;
+
+  --message-success-bg: rgba(55, 226, 164, 0.14);
+  --message-warning-bg: rgba(255, 176, 32, 0.14);
+  --message-error-bg: rgba(255, 107, 107, 0.14);
+
+  --darkened-bg: #0e1114;
+  --selected-bg: #171d24;
+  --selected-row: rgba(255, 176, 32, 0.1);
+
+  --button-fg: #16110a;
+  --button-bg: #ffb020;
+  --button-hover-bg: #ffcb6b;
+  --default-button-bg: #171d24;
+  --default-button-hover-bg: #37424f;
+  --close-button-bg: #37424f;
+  --close-button-hover-bg: #576273;
+  --delete-button-bg: #ff6b6b;
+  --delete-button-hover-bg: #e14f4f;
+
+  --object-tools-fg: #16110a;
+  --object-tools-bg: #ffb020;
+  --object-tools-hover-bg: #ffcb6b;
+
+  color-scheme: dark;
+}
+
+/* "Auto" (sin data-theme explícito): sigue la preferencia del SO. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme='light']):not([data-theme='dark']) {
+    --primary: #ffb020;
+    --secondary: #171d24;
+    --accent: #ffcb6b;
+    --primary-fg: #16110a;
+
+    --body-fg: #e8ecf1;
+    --body-bg: #0b0e11;
+    --body-quiet-color: #8b98a8;
+    --body-medium-color: #b3bccb;
+    --body-loud-color: #e8ecf1;
+
+    --header-color: #ffcb6b;
+    --header-branding-color: var(--accent);
+    --header-bg: #12161b;
+    --header-link-color: #e8ecf1;
+
+    --breadcrumbs-fg: #8b98a8;
+    --breadcrumbs-link-fg: #e8ecf1;
+    --breadcrumbs-bg: #171d24;
+
+    --link-fg: #ffb020;
+    --link-hover-color: #ffcb6b;
+    --link-selected-fg: #ffcb6b;
+
+    --hairline-color: #232a33;
+    --border-color: #37424f;
+
+    --error-fg: #ff6b6b;
+
+    --message-success-bg: rgba(55, 226, 164, 0.14);
+    --message-warning-bg: rgba(255, 176, 32, 0.14);
+    --message-error-bg: rgba(255, 107, 107, 0.14);
+
+    --darkened-bg: #0e1114;
+    --selected-bg: #171d24;
+    --selected-row: rgba(255, 176, 32, 0.1);
+
+    --button-fg: #16110a;
+    --button-bg: #ffb020;
+    --button-hover-bg: #ffcb6b;
+    --default-button-bg: #171d24;
+    --default-button-hover-bg: #37424f;
+    --close-button-bg: #37424f;
+    --close-button-hover-bg: #576273;
+    --delete-button-bg: #ff6b6b;
+    --delete-button-hover-bg: #e14f4f;
+
+    --object-tools-fg: #16110a;
+    --object-tools-bg: #ffb020;
+    --object-tools-hover-bg: #ffcb6b;
+
+    color-scheme: dark;
+  }
+}
+
+body {
+  background: var(--body-bg);
+}
+
+/* La tipografía mono es la identidad de marca del resto de la app —
+ * la usamos para lo mismo que ahí: headings, branding, botones. */
+#header,
+#branding h1,
+.module h2,
+.module caption,
+.submit-row input,
+.button,
+th {
+  font-family: var(--font-family-monospace);
+}
+
+#site-name a {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+#header {
+  border-bottom: 1px solid var(--hairline-color);
+}
+
+div.breadcrumbs {
+  font-family: var(--font-family-monospace);
+  font-size: 0.78rem;
+}
+
+.module {
+  border: 1px solid var(--hairline-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.module h2,
+.module caption,
+.inline-group h2 {
+  border-radius: 0;
+}
+
+/* Login */
+.login #container {
+  border: 1px solid var(--hairline-color);
+  border-radius: 6px;
+}
+
+.login .form-row label {
+  color: var(--body-quiet-color);
+}
+
+/* Botones "primary" con texto legible sobre el acento, igual que
+ * .btn.primary del frontend. */
+.button.default,
+input[type='submit'].default,
+.submit-row input.default {
+  font-weight: 600;
+}
+
+/* Responsive: el admin de Django ya colapsa el sidebar en pantallas chicas,
+ * acá solo evitamos overflow horizontal en tablas anchas (changelist) en
+ * vez de dejar que se compriman ilegibles. */
+@media (max-width: 767px) {
+  #changelist .results,
+  .module table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #content {
+    padding: 12px;
+  }
+
+  .form-row {
+    padding: 8px 0;
+  }
+}

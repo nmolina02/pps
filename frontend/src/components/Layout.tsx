@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useProfile } from '../context/ProfileContext';
 import { useDocente } from '../context/DocenteContext';
@@ -7,11 +8,16 @@ export function Layout() {
   const location = useLocation();
   const { profile } = useProfile();
   const { docente } = useDocente();
+  const [menuOpen, setMenuOpen] = useState(false);
   const onProfile = location.pathname === '/perfil';
   const onDocenteProfile = location.pathname === '/docente/perfil';
   const onCuestionarios =
     location.pathname.startsWith('/docente/cuestionarios') || location.pathname.startsWith('/docente/sala');
   const onCasosDocente = location.pathname.startsWith('/docente/casos');
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <>
@@ -27,9 +33,9 @@ export function Layout() {
       >
         <div
           className="container"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 62 }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 62, gap: 12 }}
         >
-          <Link to="/" style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <Link to="/" style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexShrink: 0 }}>
             <span className="mono" style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.05rem' }}>
               cafe
             </span>
@@ -37,7 +43,18 @@ export function Layout() {
               --portal-so
             </span>
           </Link>
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label={menuOpen ? 'cerrar menú' : 'abrir menú'}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((prev) => !prev)}
+          >
+            <span className="mono" style={{ fontSize: '1.1rem', lineHeight: 1 }}>
+              {menuOpen ? '×' : '☰'}
+            </span>
+          </button>
+          <nav className={`site-nav${menuOpen ? ' open' : ''}`}>
             <NavLink
               to="/"
               label="casos"
