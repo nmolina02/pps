@@ -231,12 +231,30 @@ div.breadcrumbs {
   color: var(--body-quiet-color);
 }
 
-/* Botones "primary" con texto legible sobre el acento, igual que
- * .btn.primary del frontend. */
+/* El botón "Save" trae la clase .default — Django solo le pisa el
+ * background (a --default-button-bg, un gris apagado) pero deja el texto
+ * en --button-fg, pensado para el botón de acento brillante. En nuestra
+ * paleta esa combinación queda clara-sobre-clara (u oscura-sobre-oscura)
+ * y se ilegibiliza. Se lo trata como el botón primario en vez de como el
+ * secundario — es la acción principal del form, tiene sentido que resalte
+ * y así el contraste queda garantizado en los dos temas. */
 .button.default,
 input[type='submit'].default,
 .submit-row input.default {
+  background: var(--button-bg);
+  color: var(--button-fg);
   font-weight: 600;
+}
+
+.button.default:active,
+input[type='submit'].default:active,
+.button.default:focus,
+input[type='submit'].default:focus,
+.button.default:hover,
+input[type='submit'].default:hover,
+.submit-row input.default:hover {
+  background: var(--button-hover-bg);
+  color: var(--button-fg);
 }
 
 /* Responsive: el admin de Django ya colapsa el sidebar en pantallas chicas,
