@@ -221,6 +221,7 @@ export interface Quiz {
   title: string;
   host: string;
   shared_with: string[];
+  shared_with_comisiones: string[];
   question_count: number;
   created_at: string;
 }
@@ -258,4 +259,47 @@ export interface QuizLeaderboardRow {
   full_name: string;
   total_score: number;
   sessions_played: number;
+}
+
+// ---- cuestionarios compartidos con el alumno (repaso) ----
+
+export interface SharedQuizListItem {
+  id: number;
+  title: string;
+  host: string;
+  question_count: number;
+  played: boolean;
+  total_score: number | null;
+  played_at: string | null;
+}
+
+export interface SharedQuizQuestionOption {
+  id: number;
+  text: string;
+  image: string;
+  is_correct: boolean;
+}
+
+export interface SharedQuizQuestion {
+  question_id: number;
+  order: number;
+  text: string;
+  image: string;
+  question_type: QuestionType;
+  justification: string;
+  options: SharedQuizQuestionOption[];
+  selected_option_ids: number[];
+  free_text: string;
+  is_correct: boolean | null;
+  score: number | null;
+}
+
+export interface SharedQuizDetail {
+  id: number;
+  title: string;
+  host: string;
+  played: boolean;
+  played_at: string | null;
+  total_score: number | null;
+  questions: SharedQuizQuestion[];
 }

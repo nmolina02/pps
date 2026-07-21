@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
-from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
+from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizAttempt, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsCaseAuthor, IsSessionHost
 from .serializers import (
     CaseDetailSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     QuizSessionSerializer,
     QuizWriteSerializer,
     SessionQuestionSerializer,
+    ShareQuizzesWithComisionesSerializer,
     StudentPreferencesSerializer,
     StudentSerializer,
     SubmitAnswerSerializer,
@@ -65,6 +66,29 @@ def _leaderboard(session):
         }
         for p in participants
     ]
+
+
+def _question_review_payload(question, answer=None):
+    """Shape compartida por el snapshot que se guarda en QuizAttempt (con un
+    Answer real) y por la vista de repaso de un cuestionario que el alumno
+    todavía no jugó (answer=None: nadie marcó nada, solo se listan las
+    opciones para mostrar cuáles son correctas)."""
+    return {
+        'question_id': question.id,
+        'order': question.order,
+        'text': question.text,
+        'image': question.image,
+        'question_type': question.question_type,
+        'justification': question.justification,
+        'options': [
+            {'id': o.id, 'text': o.text, 'image': o.image, 'is_correct': o.is_correct}
+            for o in question.options.all()
+        ],
+        'selected_option_ids': list(answer.selected_options.values_list('id', flat=True)) if answer else [],
+        'free_text': answer.free_text if answer else '',
+        'is_correct': answer.is_correct if answer else None,
+        'score': answer.score if answer else None,
+    }
 
 
 def _tally(session_question):
@@ -249,6 +273,68 @@ class QuizDetailView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ShareQuizzesWithComisionesView(views.APIView):
+    """Compartir en bloque uno o más cuestionarios con los alumnos de
+    ciertas comisiones, para que los puedan repasar — separado de
+    compartir-con-docentes (QuizWriteSerializer.shared_with_usernames).
+    A diferencia de editar el cuestionario (título/preguntas, que sigue
+    siendo solo del dueño), esto es una acción operativa como arrancar una
+    sesión: puede hacerlo el dueño o cualquier docente al que se lo hayan
+    compartido, para que también pueda repartirlo entre sus propios
+    alumnos. Suma las comisiones nuevas a las que ya tenía (no reemplaza)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ShareQuizzesWithComisionesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        quiz_ids = serializer.validated_data['quiz_ids']
+        comisiones = serializer.validated_data['comisiones']
+
+        quizzes = list(Quiz.objects.filter(Q(host=request.user) | Q(shared_with=request.user), id__in=quiz_ids).distinct())
+        if len(quizzes) != len(set(quiz_ids)):
+            return Response(
+                {'quiz_ids': 'Alguno de los cuestionarios no existe o no te pertenece.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for quiz in quizzes:
+            quiz.shared_with_comisiones = sorted(set(quiz.shared_with_comisiones) | set(comisiones))
+        Quiz.objects.bulk_update(quizzes, ['shared_with_comisiones'])
+
+        return Response({'updated': len(quizzes), 'comisiones': comisiones})
+
+
+class UnshareQuizzesFromComisionesView(views.APIView):
+    """Contraparte de ShareQuizzesWithComisionesView: saca las comisiones
+    indicadas de la lista de cada cuestionario (resta, no reemplaza toda
+    la lista). Mismo permiso que compartir: dueño o cualquier docente al
+    que se lo hayan compartido. No borra los QuizAttempt ya guardados —
+    un alumno que ya lo jugó puede seguir entrando a su propio repaso
+    aunque se deje de compartir, solo deja de aparecerle en el listado."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ShareQuizzesWithComisionesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        quiz_ids = serializer.validated_data['quiz_ids']
+        comisiones = serializer.validated_data['comisiones']
+
+        quizzes = list(Quiz.objects.filter(Q(host=request.user) | Q(shared_with=request.user), id__in=quiz_ids).distinct())
+        if len(quizzes) != len(set(quiz_ids)):
+            return Response(
+                {'quiz_ids': 'Alguno de los cuestionarios no existe o no te pertenece.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for quiz in quizzes:
+            quiz.shared_with_comisiones = sorted(set(quiz.shared_with_comisiones) - set(comisiones))
+        Quiz.objects.bulk_update(quizzes, ['shared_with_comisiones'])
+
+        return Response({'updated': len(quizzes), 'comisiones': comisiones})
+
+
 class QuizStartView(views.APIView):
     """Arranca una corrida en vivo nueva de un cuestionario ya persistido —
     esto es lo que permite reutilizarlo cuatrimestre a cuatrimestre sin
@@ -327,11 +413,13 @@ class RevealQuestionView(views.APIView):
 
 
 class FinishSessionView(views.APIView):
-    """Al finalizar se descarta el detalle de respuesta por pregunta
-    (Answer) — el puntaje total por participante ya quedó persistido en
-    Participant.total_score (se incrementa en vivo en SubmitAnswerView), así
-    que el leaderboard/historial no pierde nada, pero no queda para siempre
-    quién marcó qué opción en cada pregunta de cada sesión jugada."""
+    """Al finalizar se descarta el detalle en vivo de la sesión (Answer,
+    SessionQuestion) — el puntaje total por participante ya quedó
+    persistido en Participant.total_score. Antes de purgar, si la sesión
+    corre sobre un Quiz persistido se arma un QuizAttempt por participante:
+    un snapshot de qué vio y qué marcó en cada pregunta, que sí sobrevive
+    (es lo que alimenta la pantalla de repaso del alumno) — a diferencia de
+    Answer, no se ve afectado si más tarde se editan las preguntas del Quiz."""
 
     permission_classes = [permissions.IsAuthenticated, IsSessionHost]
 
@@ -340,6 +428,28 @@ class FinishSessionView(views.APIView):
         self.check_object_permissions(request, session)
         session.status = QuizSession.Status.FINISHED
         session.save(update_fields=['status'])
+
+        if session.quiz_id:
+            session_questions = list(
+                session.session_questions.select_related('question').prefetch_related('question__options')
+            )
+            for participant in session.participants.select_related('student'):
+                answers_by_sq = {
+                    a.session_question_id: a
+                    for a in Answer.objects.filter(
+                        session_question__in=session_questions, participant=participant
+                    ).prefetch_related('selected_options')
+                }
+                snapshot = [
+                    _question_review_payload(sq.question, answers_by_sq.get(sq.id))
+                    for sq in session_questions
+                ]
+                QuizAttempt.objects.update_or_create(
+                    student=participant.student,
+                    quiz_id=session.quiz_id,
+                    defaults={'total_score': participant.total_score, 'answers': snapshot},
+                )
+
         Answer.objects.filter(session_question__session=session).delete()
         return Response(QuizSessionSerializer(session).data)
 
@@ -542,6 +652,88 @@ class StudentProfileView(views.APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(StudentSerializer(student).data)
+
+
+class StudentSharedQuizzesView(views.APIView):
+    """Cuestionarios compartidos con la comisión del alumno (para repasar
+    antes del examen), jugados o no — mismo criterio de acceso sin token que
+    StudentProfileView, el legajo en la URL es la identidad. El filtro por
+    comisión se hace en Python en vez de con un lookup JSON del ORM porque
+    `shared_with_comisiones` es una lista y `contains` sobre JSONField no
+    está soportado en SQLite (sí en Postgres) — así funciona igual en ambos."""
+
+    def get(self, request, legajo):
+        student = get_object_or_404(Student, legajo=legajo)
+        if not student.comision:
+            return Response([])
+
+        candidates = Quiz.objects.exclude(shared_with_comisiones=[]).select_related('host').annotate(
+            question_count=Count('questions')
+        )
+        quizzes = [q for q in candidates if student.comision in q.shared_with_comisiones]
+        attempts = {
+            a.quiz_id: a
+            for a in QuizAttempt.objects.filter(student=student, quiz_id__in=[q.id for q in quizzes])
+        }
+
+        return Response(
+            [
+                {
+                    'id': quiz.id,
+                    'title': quiz.title,
+                    'host': quiz.host.username,
+                    'question_count': quiz.question_count,
+                    'played': quiz.id in attempts,
+                    'total_score': attempts[quiz.id].total_score if quiz.id in attempts else None,
+                    'played_at': attempts[quiz.id].played_at if quiz.id in attempts else None,
+                }
+                for quiz in sorted(quizzes, key=lambda q: q.title.lower())
+            ]
+        )
+
+
+class StudentSharedQuizDetailView(views.APIView):
+    """Repaso de un cuestionario puntual: si el alumno lo jugó, devuelve el
+    snapshot guardado en QuizAttempt (lo que vio y marcó esa vez); si no lo
+    jugó pero está compartido con su comisión, arma el mismo shape en vivo a
+    partir de las preguntas actuales, sin nada seleccionado — así el
+    frontend renderiza ambos casos con el mismo componente."""
+
+    def get(self, request, legajo, quiz_id):
+        student = get_object_or_404(Student, legajo=legajo)
+        quiz = get_object_or_404(Quiz.objects.select_related('host'), pk=quiz_id)
+        attempt = QuizAttempt.objects.filter(student=student, quiz=quiz).first()
+        shared = bool(student.comision) and student.comision in quiz.shared_with_comisiones
+
+        if not shared and not attempt:
+            return Response(
+                {'detail': 'Este cuestionario no está compartido con vos.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if attempt:
+            questions = attempt.answers
+            played_at = attempt.played_at
+            total_score = attempt.total_score
+        else:
+            questions = [
+                _question_review_payload(q)
+                for q in quiz.questions.order_by('order').prefetch_related('options')
+            ]
+            played_at = None
+            total_score = None
+
+        return Response(
+            {
+                'id': quiz.id,
+                'title': quiz.title,
+                'host': quiz.host.username,
+                'played': attempt is not None,
+                'played_at': played_at,
+                'total_score': total_score,
+                'questions': questions,
+            }
+        )
 
 
 class StudentHistoryView(views.APIView):

@@ -11,6 +11,28 @@ import type {
   Theme,
 } from './types';
 
+export function shareQuizzesWithComisiones(
+  token: string,
+  payload: { quiz_ids: number[]; comisiones: string[] },
+): Promise<{ updated: number; comisiones: string[] }> {
+  return apiFetch<{ updated: number; comisiones: string[] }>('/docente/quizzes/compartir-alumnos/', {
+    method: 'POST',
+    body: payload,
+    token,
+  });
+}
+
+export function unshareQuizzesFromComisiones(
+  token: string,
+  payload: { quiz_ids: number[]; comisiones: string[] },
+): Promise<{ updated: number; comisiones: string[] }> {
+  return apiFetch<{ updated: number; comisiones: string[] }>('/docente/quizzes/dejar-de-compartir-alumnos/', {
+    method: 'POST',
+    body: payload,
+    token,
+  });
+}
+
 export function getTeacherProfile(token: string): Promise<TeacherProfile> {
   return apiFetch<TeacherProfile>('/docente/perfil/', { token });
 }

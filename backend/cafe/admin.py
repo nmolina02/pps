@@ -14,6 +14,7 @@ from .models import (
     Participant,
     Question,
     QuestionOption,
+    QuizAttempt,
     QuizSession,
     SessionQuestion,
     Student,
@@ -29,8 +30,9 @@ admin.site.site_url = settings.FRONTEND_URL
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['legajo', 'full_name']
-    search_fields = ['legajo', 'full_name']
+    list_display = ['legajo', 'full_name', 'comision']
+    list_filter = ['comision']
+    search_fields = ['legajo', 'full_name', 'comision']
     change_list_template = 'admin/cafe/student/change_list.html'
 
     def get_urls(self):
@@ -80,9 +82,10 @@ class StudentAdmin(admin.ModelAdmin):
             if not legajo or not full_name:
                 errors.append(f'Fila {line_number}: legajo o nombre vacío, se omitió.')
                 continue
-            _, was_created = Student.objects.update_or_create(
-                legajo=legajo, defaults={'full_name': full_name}
-            )
+            defaults = {'full_name': full_name}
+            if 'comision' in field_lookup:
+                defaults['comision'] = (row.get(field_lookup['comision']) or '').strip()
+            _, was_created = Student.objects.update_or_create(legajo=legajo, defaults=defaults)
             created += int(was_created)
             updated += int(not was_created)
         return created, updated, errors
@@ -149,3 +152,20 @@ class AnswerAdmin(admin.ModelAdmin):
 @admin.register(TeacherProfile)
 class TeacherProfileAdmin(admin.ModelAdmin):
     list_display = ['user', 'avatar', 'theme']
+
+
+@admin.register(QuizAttempt)
+class QuizAttemptAdmin(admin.ModelAdmin):
+    """Solo lectura: es un snapshot armado por el sistema al finalizar una
+    sesión, no algo que un docente deba editar a mano."""
+
+    list_display = ['student', 'quiz', 'total_score', 'played_at']
+    list_filter = ['quiz']
+    search_fields = ['student__legajo', 'student__full_name', 'quiz__title']
+    readonly_fields = ['student', 'quiz', 'total_score', 'answers', 'played_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

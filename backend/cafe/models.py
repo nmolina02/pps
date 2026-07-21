@@ -83,6 +83,10 @@ class Quiz(models.Model):
         blank=True,
         help_text='Docentes puntuales que además del dueño pueden verlo y arrancar sesiones — solo el dueño puede editarlo o eliminarlo.',
     )
+    shared_with_comisiones = models.JSONField(
+        default=list, blank=True,
+        help_text='Comisiones (Student.comision) con las que se compartió este cuestionario para repaso — no confundir con `shared_with`, que es entre docentes. Solo el dueño puede modificarlo.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -245,6 +249,10 @@ class Student(models.Model):
 
     legajo = models.CharField(max_length=20, unique=True)
     full_name = models.CharField(max_length=150)
+    comision = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text='Comisión del alumno — se usa para compartirle cuestionarios de repaso.',
+    )
     avatar = models.PositiveSmallIntegerField(default=0, help_text='Índice del glifo elegido (0-7) en el frontend.')
     theme = models.CharField(max_length=5, choices=Theme.choices, default=Theme.DARK)
 
@@ -253,6 +261,13 @@ class Student(models.Model):
 
     def __str__(self):
         return f'{self.full_name} ({self.legajo})'
+
+    def save(self, *args, **kwargs):
+        # Normalizada acá (un solo lugar: admin, CSV e API pasan todos por
+        # save()) para que nunca falle el match contra
+        # Quiz.shared_with_comisiones por una diferencia de mayúsculas.
+        self.comision = self.comision.strip().upper()
+        super().save(*args, **kwargs)
 
 
 class TeacherProfile(models.Model):
@@ -302,3 +317,27 @@ class Answer(models.Model):
 
     def __str__(self):
         return f'{self.participant.student.legajo} -> {self.session_question}'
+
+
+class QuizAttempt(models.Model):
+    """Snapshot de la última vez que un alumno jugó este Quiz — se arma al
+    finalizar la sesión (ver FinishSessionView) y sobrevive tanto a la purga
+    de `Answer` (datos en vivo de la sesión) como a una edición posterior de
+    las preguntas del Quiz. Es la fuente de verdad para la pantalla de
+    repaso del alumno; si no existe un QuizAttempt es porque nunca lo jugó."""
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='quiz_attempts')
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='attempts')
+    total_score = models.PositiveIntegerField(default=0)
+    answers = models.JSONField(
+        default=list,
+        help_text='Snapshot por pregunta: enunciado, opciones (con is_correct) y qué marcó el alumno.',
+    )
+    played_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-played_at']
+        unique_together = [('student', 'quiz')]
+
+    def __str__(self):
+        return f'{self.student.legajo} -> {self.quiz.title}'

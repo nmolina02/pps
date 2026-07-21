@@ -79,6 +79,13 @@ export function Layout() {
             ) : (
               <>
                 <NavLink to="/jugar" label="jugar" active={location.pathname.startsWith('/jugar')} />
+                {profile && (
+                  <NavLink
+                    to="/mis-cuestionarios"
+                    label="repasar"
+                    active={location.pathname.startsWith('/mis-cuestionarios')}
+                  />
+                )}
                 {!profile && (
                   <NavLink to="/docente" label="docente" active={location.pathname.startsWith('/docente')} />
                 )}

@@ -30,6 +30,16 @@ urlpatterns = [
     path('students/leaderboard/', views.StudentLeaderboardView.as_view(), name='student-leaderboard'),
     path('students/<str:legajo>/profile/', views.StudentProfileView.as_view(), name='student-profile'),
     path('students/<str:legajo>/history/', views.StudentHistoryView.as_view(), name='student-history'),
+    path(
+        'students/<str:legajo>/quizzes-compartidos/',
+        views.StudentSharedQuizzesView.as_view(),
+        name='student-shared-quizzes',
+    ),
+    path(
+        'students/<str:legajo>/quizzes-compartidos/<int:quiz_id>/',
+        views.StudentSharedQuizDetailView.as_view(),
+        name='student-shared-quiz-detail',
+    ),
     path('docente/perfil/', views.TeacherProfileView.as_view(), name='teacher-profile'),
     path('docente/cambiar-password/', views.ChangePasswordView.as_view(), name='docente-change-password'),
     path(
@@ -43,5 +53,15 @@ urlpatterns = [
     path('docente/quizzes/<int:pk>/', views.QuizDetailView.as_view(), name='quiz-detail'),
     path('docente/quizzes/<int:pk>/start/', views.QuizStartView.as_view(), name='quiz-start'),
     path('docente/quizzes/<int:pk>/leaderboard/', views.QuizLeaderboardView.as_view(), name='quiz-leaderboard'),
+    path(
+        'docente/quizzes/compartir-alumnos/',
+        views.ShareQuizzesWithComisionesView.as_view(),
+        name='quiz-share-comisiones',
+    ),
+    path(
+        'docente/quizzes/dejar-de-compartir-alumnos/',
+        views.UnshareQuizzesFromComisionesView.as_view(),
+        name='quiz-unshare-comisiones',
+    ),
     path('docente/mi-historial/', views.ClearMyHistoryView.as_view(), name='docente-clear-history'),
 ]

@@ -300,10 +300,29 @@ class QuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Quiz
-        fields = ['id', 'title', 'host', 'shared_with', 'question_count', 'created_at']
+        fields = ['id', 'title', 'host', 'shared_with', 'shared_with_comisiones', 'question_count', 'created_at']
 
     def get_shared_with(self, obj):
         return list(obj.shared_with.values_list('username', flat=True))
+
+
+class ShareQuizzesWithComisionesSerializer(serializers.Serializer):
+    """Compartir en bloque uno o más cuestionarios propios con alumnos de
+    ciertas comisiones — separado de QuizWriteSerializer porque no es una
+    edición del cuestionario en sí, se dispara desde un botón aparte en el
+    panel de cuestionarios (análogo a 'limpiar historial')."""
+
+    quiz_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+    comisiones = serializers.ListField(child=serializers.CharField(max_length=20), allow_empty=False)
+
+    def validate_comisiones(self, value):
+        # Mayúsculas para que coincida siempre con Student.comision (que se
+        # normaliza igual en Student.save()), sin importar cómo la haya
+        # tipeado el docente.
+        cleaned = sorted({c.strip().upper() for c in value if c.strip()})
+        if not cleaned:
+            raise serializers.ValidationError('Ingresá al menos una comisión.')
+        return cleaned
 
 
 class QuizQuestionDetailSerializer(serializers.ModelSerializer):

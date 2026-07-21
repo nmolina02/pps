@@ -15,6 +15,8 @@ import { CaseManagePage } from './pages/CaseManagePage';
 import { CaseFormPage } from './pages/CaseFormPage';
 import { QuizManagePage } from './pages/QuizManagePage';
 import { QuizLeaderboardPage } from './pages/QuizLeaderboardPage';
+import { SharedQuizzesPage } from './pages/SharedQuizzesPage';
+import { SharedQuizReviewPage } from './pages/SharedQuizReviewPage';
 import { ProfileProvider, useProfile } from './context/ProfileContext';
 import { DocenteProvider, useDocente } from './context/DocenteContext';
 
@@ -47,6 +49,8 @@ function App() {
               <Route path="/perfil" element={<ProfilePage />} />
               <Route path="/jugar" element={<JoinPage />} />
               <Route path="/jugar/:code" element={<PlayPage />} />
+              <Route path="/mis-cuestionarios" element={<SharedQuizzesPage />} />
+              <Route path="/mis-cuestionarios/:quizId" element={<SharedQuizReviewPage />} />
               <Route path="/docente" element={<DocenteLoginPage />} />
               <Route path="/docente/perfil" element={<DocenteProfilePage />} />
               <Route path="/docente/cuestionarios" element={<QuizManagePage />} />
