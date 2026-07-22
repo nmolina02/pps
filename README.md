@@ -34,8 +34,8 @@ El sistema modela dos roles con necesidades y permisos distintos:
 
 | Rol | Qué hace en la plataforma |
 |---|---|
-| **Alumno** | Explora el banco de casos de falla por tema, lee el diagnóstico y la teoría asociada, responde las preguntas conceptuales de cada caso, y juega cuestionarios en vivo unido con su legajo. |
-| **Docente** | Redacta y publica casos de falla (con autoría y permisos de edición propios), arma cuestionarios de opción única/múltiple/completar/encuesta con imágenes, los comparte con otros docentes, corre sesiones en vivo proyectando resultados en tiempo real, y consulta el historial y leaderboard de cada cuestionario. |
+| **Alumno** | Explora el banco de casos de falla por tema, lee el diagnóstico y la teoría asociada, responde las preguntas conceptuales de cada caso, juega cuestionarios en vivo unido con su legajo, y repasa los cuestionarios que su docente compartió con la comisión, incluyendo revisión de respuestas correctas y de lo que marcó en su momento. |
+| **Docente** | Redacta y publica casos de falla (con autoría y permisos de edición propios), arma cuestionarios de opción única/múltiple/completar/encuesta con imágenes, los comparte con otros docentes y con comisiones de alumnos para repaso, corre sesiones en vivo proyectando resultados en tiempo real, y consulta el historial y leaderboard de cada cuestionario. |
 
 Todo el contenido pedagógico (casos, diagramas, preguntas) es **dato**, no código: se carga desde el
 panel del docente o desde el admin, y se renderiza mediante un motor genérico de modelos visuales que
@@ -91,12 +91,18 @@ no requiere tocar el frontend para agregar un caso nuevo.
   velocidad de respuesta.
 - Historial y leaderboard por cuestionario, con opción de que el docente limpie su propio historial de
   partidas jugadas.
+- **Compartido con comisiones para repaso**: el docente elige uno o varios cuestionarios y los comparte
+  (o deja de compartir) con una o más comisiones de alumnos (ej. `K3054`); cualquier docente con el que
+  el cuestionario haya sido compartido puede a su vez distribuirlo a sus propias comisiones. El alumno
+  ve estos cuestionarios en una sección de repaso propia, con la totalidad de opciones de cada pregunta:
+  las correctas en verde y, si ya lo jugó, marcada también la que él seleccionó; si no lo jugó, solo se
+  muestran las correctas.
 
 ### Cuentas y perfiles
 
 - Autenticación por token para docentes (`django-rest-framework` `TokenAuthentication`); los alumnos se
   identifican por legajo, cargado previamente por el admin del sistema (sea individualmente o por importación masiva
-  vía CSV).
+  vía CSV), con su comisión (ej. `K3054`) como dato asociado para el reparto de cuestionarios compartidos.
 - Perfil con selección de avatar y tema claro/oscuro, persistente por usuario.
 - Cambio de contraseña autogestionado por el docente (verificando la contraseña actual), sin depender de
   un flujo de recuperación por correo.
