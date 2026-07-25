@@ -27,7 +27,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: 'list',
+  // 'list' para log en vivo (útil en la consola de CI); 'html' además deja
+  // un reporte navegable con capturas/trazas — sin esto no había nada que
+  // subir como artifact cuando un test fallaba en CI.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: FRONTEND_URL,
     trace: 'retain-on-failure',

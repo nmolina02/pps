@@ -40,7 +40,7 @@ test.describe('Docente: compartir cuestionario con una comisión', () => {
   });
 
   test('deja de compartir una comisión previamente compartida', async ({ page }) => {
-    const quizRow = page.locator('.panel', { hasText: QUIZ_TITLE }).first();
+    let quizRow = page.locator('.panel', { hasText: QUIZ_TITLE }).first();
 
     // Aseguramos estado conocido: comparte primero, y esperamos el estado
     // persistido (no solo la desaparición del botón) antes de la próxima acción.
@@ -50,10 +50,23 @@ test.describe('Docente: compartir cuestionario con una comisión', () => {
     await page.getByRole('button', { name: /^compartir \(1\)/ }).click();
     await expect(quizRow.getByText(SHARED_LABEL)).toBeVisible();
 
-    // Ahora la saca (seguimos en modo compartir, la selección se resetea sola tras cada acción).
+    // Recargamos antes de la segunda mitad: la sesión del docente persiste
+    // en localStorage (ver DocenteContext), así que esto solo fuerza un
+    // remount limpio de la SPA y un refetch real del quiz — evita
+    // arrastrar cualquier estado de selección/input residual del primer
+    // compartir a esta segunda interacción (root cause de un timeout
+    // intermitente en CI: el botón quedaba "disabled" indefinidamente).
+    await page.reload();
+    quizRow = page.locator('.panel', { hasText: QUIZ_TITLE }).first();
+    await expect(quizRow.getByText(SHARED_LABEL)).toBeVisible();
+
+    // Ahora la saca.
+    await page.getByRole('button', { name: /compartir a alumnos/i }).click();
     await quizRow.locator('input[type="checkbox"]').check();
     await page.getByPlaceholder('comisiones separadas por coma').fill(COMISION);
-    await page.getByRole('button', { name: /dejar de compartir \(1\)/ }).click();
+    const unshareButton = page.getByRole('button', { name: /dejar de compartir \(1\)/ });
+    await expect(unshareButton).toBeEnabled();
+    await unshareButton.click();
     await expect(quizRow.getByText(SHARED_LABEL)).toHaveCount(0);
 
     await page.getByRole('button', { name: /^cancelar$/ }).click();
