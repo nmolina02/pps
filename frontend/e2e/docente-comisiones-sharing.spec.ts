@@ -4,6 +4,7 @@ const DOCENTE_USERNAME = 'e2e_docente';
 const DOCENTE_PASSWORD = 'e2e-clave-segura-123';
 const COMISION = 'K3054';
 const QUIZ_TITLE = 'Quiz e2e — procesos';
+const SHARED_LABEL = new RegExp(`compartido con la comisi.n:\\s*${COMISION}`, 'i');
 
 test.describe('Docente: compartir cuestionario con una comisión', () => {
   test.beforeEach(async ({ page }) => {
@@ -26,34 +27,36 @@ test.describe('Docente: compartir cuestionario con una comisión', () => {
     await page.getByPlaceholder('comisiones separadas por coma').fill(COMISION.toLowerCase());
     await page.getByRole('button', { name: /^compartir \(1\)/ }).click();
 
-    // handleShare limpia la selección al terminar — esperamos a que el
-    // botón desaparezca como señal de que el POST se resolvió.
-    await expect(page.getByRole('button', { name: /^compartir \(1\)/ })).toHaveCount(0);
+    // handleShare limpia la selección apenas el POST resuelve, pero el
+    // refresh() que sigue (refetch de /quizzes/) es fire-and-forget — no lo
+    // espera. Por eso el chequeo confiable de que TODO terminó (POST +
+    // refetch + re-render) es el texto de la fila, no la desaparición del
+    // botón, que ocurre antes y da lugar a una carrera si seguís interactuando.
+    await expect(quizRow.getByText(SHARED_LABEL)).toBeVisible();
 
     // El toast de éxito solo se muestra fuera del panel de compartir.
     await page.getByRole('button', { name: /^cancelar$/ }).click();
     await expect(page.getByText(`Compartido con la comisión ${COMISION}.`)).toBeVisible();
-    await expect(quizRow.getByText(new RegExp(`compartido con la comisi.n:\\s*${COMISION}`, 'i'))).toBeVisible();
   });
 
   test('deja de compartir una comisión previamente compartida', async ({ page }) => {
     const quizRow = page.locator('.panel', { hasText: QUIZ_TITLE }).first();
 
-    // Aseguramos estado conocido: comparte primero.
+    // Aseguramos estado conocido: comparte primero, y esperamos el estado
+    // persistido (no solo la desaparición del botón) antes de la próxima acción.
     await page.getByRole('button', { name: /compartir a alumnos/i }).click();
     await quizRow.locator('input[type="checkbox"]').check();
     await page.getByPlaceholder('comisiones separadas por coma').fill(COMISION);
     await page.getByRole('button', { name: /^compartir \(1\)/ }).click();
-    await expect(page.getByRole('button', { name: /^compartir \(1\)/ })).toHaveCount(0);
+    await expect(quizRow.getByText(SHARED_LABEL)).toBeVisible();
 
     // Ahora la saca (seguimos en modo compartir, la selección se resetea sola tras cada acción).
     await quizRow.locator('input[type="checkbox"]').check();
     await page.getByPlaceholder('comisiones separadas por coma').fill(COMISION);
     await page.getByRole('button', { name: /dejar de compartir \(1\)/ }).click();
-    await expect(page.getByRole('button', { name: /dejar de compartir \(1\)/ })).toHaveCount(0);
+    await expect(quizRow.getByText(SHARED_LABEL)).toHaveCount(0);
 
     await page.getByRole('button', { name: /^cancelar$/ }).click();
     await expect(page.getByText(`Se dejó de compartir con la comisión ${COMISION}.`)).toBeVisible();
-    await expect(quizRow.getByText(/compartido con la comisi.n/i)).toHaveCount(0);
   });
 });
