@@ -20,6 +20,7 @@ puede además convertir en un **cuestionario interactivo en vivo** para evaluar 
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Puesta en marcha local](#puesta-en-marcha-local)
 - [Variables de entorno](#variables-de-entorno)
+- [Testing](#testing)
 - [Despliegue en producción](#despliegue-en-producción)
 - [Integración continua](#integración-continua)
 - [Comandos de administración](#comandos-de-administración)
@@ -231,6 +232,29 @@ En producción, `RENDER_EXTERNAL_HOSTNAME` lo define Render automáticamente y s
 |---|---|
 | `VITE_API_BASE_URL` | Base de la API del backend (incluye `/api/v1`) |
 
+## Testing
+
+Tres capas, cada una con su propósito:
+
+| Capa | Herramienta | Qué cubre |
+|---|---|---|
+| Unit + integración (backend) | Django `TestCase` / DRF `APITestCase` (`backend/cafe/tests/`) | Reglas de puntaje (`Question.score_ratio` en sus 4 tipos), normalización de comisión, validación de serializers, y el ciclo completo de cada endpoint: casos (alta/edición/borrado con permiso de autor), cuestionarios (alta, edición, compartido entre docentes), compartido/descompartido por comisión (incluido el permiso extendido a docentes no dueños), una sesión en vivo de punta a punta (arrancar → unirse → responder → revelar → finalizar → snapshot de `QuizAttempt`), perfil/historial/leaderboard de alumno, y la importación de alumnos por CSV desde el admin. 147 tests. |
+| Unit (frontend) | Vitest + React Testing Library (`frontend/src/**/*.test.{ts,tsx}`) | Lógica pura con más ramificaciones: el motor de inferencia de modelos visuales (`sniffShape` + los ~66 adaptadores del registro contra sus propios ejemplos), el hook de reproducción paso a paso (`usePlayback`) y su integración con `PlaybackControls`, el parseo/normalización de comisiones, y el cliente HTTP (`apiFetch`/`ApiError`). 171 tests. |
+| End-to-end | Playwright (`frontend/e2e/`) | Los dos flujos de browser más nuevos y con más piezas moviéndose: un docente comparte/descomparte un cuestionario con una comisión desde el panel, y un alumno lo ve en su lista de repaso y revisa las respuestas correctas. Corre contra un backend y frontend reales, levantados automáticamente por Playwright sobre una base sqlite descartable (`db.e2e.sqlite3`, sembrada por `manage.py seed_e2e_data`) — no toca la base de desarrollo. |
+
+Comandos:
+
+```bash
+# Backend — desde backend/, con el venv activado
+python manage.py test
+
+# Frontend — desde frontend/
+npm run test          # unit tests una vez
+npm run test:watch    # unit tests en modo watch
+npm run test:coverage # con reporte de cobertura
+npm run test:e2e      # e2e (levanta backend+frontend solo; primera vez: npx playwright install chromium)
+```
+
 ## Despliegue en producción
 
 | Servicio | Rol |
@@ -246,11 +270,13 @@ salvaguarda ante una variable de entorno mal configurada.
 
 ## Integración continua
 
-Dos workflows de GitHub Actions, cada uno disparado solo por cambios en su carpeta correspondiente:
+Tres workflows de GitHub Actions, cada uno disparado solo por cambios relevantes:
 
 - **`backend-ci.yml`**: `manage.py check`, chequeo de migraciones faltantes, y suite de tests.
-- **`frontend-ci.yml`**: instalación de dependencias, lint (`oxlint`) y build de producción (`tsc` +
-  `vite build`).
+- **`frontend-ci.yml`**: instalación de dependencias, lint (`oxlint`), unit tests (Vitest) y build de
+  producción (`tsc` + `vite build`).
+- **`e2e-ci.yml`**: instala backend y frontend, y corre la suite de Playwright contra ambos servidores
+  reales levantados por el propio workflow (dispara con cambios en cualquiera de las dos carpetas).
 
 ## Comandos de administración
 

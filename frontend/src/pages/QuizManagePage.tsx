@@ -12,7 +12,7 @@ import type { Quiz } from '../api/types';
 
 // Mayúsculas para que siempre coincida con Student.comision (normalizada
 // igual del lado del backend) sin importar cómo la tipeó el docente.
-function parseComisiones(input: string): string[] {
+export function parseComisiones(input: string): string[] {
   return Array.from(
     new Set(
       input
