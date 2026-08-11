@@ -56,6 +56,20 @@ class ProcessCsvUnitTests(TestCase):
         )
         self.assertEqual(Student.objects.get(legajo='111').comision, 'K3054')
 
+    def test_reimporting_without_a_comision_column_preserves_the_existing_value(self):
+        Student.objects.create(legajo='111', full_name='Ada Lovelace', comision='K3054')
+        self.student_admin._process_csv(
+            _csv_file('legajo,full_name\n111,Ada Lovelace\n')
+        )
+        self.assertEqual(Student.objects.get(legajo='111').comision, 'K3054')
+
+    def test_a_blank_value_in_a_present_comision_column_clears_it(self):
+        Student.objects.create(legajo='111', full_name='Ada Lovelace', comision='K3054')
+        self.student_admin._process_csv(
+            _csv_file('legajo,full_name,comision\n111,Ada Lovelace,\n')
+        )
+        self.assertEqual(Student.objects.get(legajo='111').comision, '')
+
     def test_missing_required_columns_returns_error(self):
         created, updated, errors = self.student_admin._process_csv(_csv_file('foo,bar\n1,2\n'))
         self.assertEqual((created, updated), (0, 0))

@@ -7,6 +7,12 @@
     Si un legajo ya existe se actualiza el nombre; si no existe, se crea un alumno nuevo.
     Podés volver a subir el mismo archivo actualizado cuatrimestre a cuatrimestre sin generar duplicados.
   </p>
+  <p>
+    Sumá una columna opcional <code>comision</code> (ej. <code>K3054</code>) para cargar la comisión de
+    cada alumno — se guarda en mayúsculas sin importar cómo la hayas tipeado. Si el encabezado no incluye
+    esa columna, la comisión que ya tenga cargada cada alumno no se toca; si la incluís, se actualiza para
+    todas las filas del archivo (dejarla vacía en una fila borra la comisión de ese alumno).
+  </p>
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {{ form.as_p }}

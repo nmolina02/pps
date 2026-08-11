@@ -2,7 +2,7 @@ from django import forms
 
 
 class StudentCSVImportForm(forms.Form):
-    csv_file = forms.FileField(label='Archivo CSV (columnas: legajo, full_name)')
+    csv_file = forms.FileField(label='Archivo CSV (columnas: legajo, full_name, comision [opcional])')
 
     def clean_csv_file(self):
         f = self.cleaned_data['csv_file']

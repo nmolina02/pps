@@ -283,7 +283,7 @@ Tres workflows de GitHub Actions, cada uno disparado solo por cambios relevantes
 | Comando | Descripción |
 |---|---|
 | `python manage.py import_failure_cases [--file RUTA] [--author USER] [--update]` | Importa (o re-importa) el banco de casos de falla desde el `.md` fuente |
-| Importación de alumnos por CSV | Disponible desde el admin (`Students → Importar CSV`), con columnas `legajo`/`full_name` |
+| Importación de alumnos por CSV | Disponible desde el admin (`Students → Importar CSV`), con columnas `legajo`/`full_name` y `comision` opcional (se normaliza a mayúsculas) |
 
 ## Seguridad
 
