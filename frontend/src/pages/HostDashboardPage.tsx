@@ -16,7 +16,7 @@ export function HostDashboardPage() {
   const [progress, setProgress] = useState<SessionQuestionProgress[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCorrect, setShowCorrect] = useState(true);
+  const [showCorrect, setShowCorrect] = useState(false);
 
   const refreshProgress = useCallback(() => {
     if (!docente) return;
@@ -184,6 +184,11 @@ export function HostDashboardPage() {
                 />
               ) : (
                 <TallyBars tally={current.tally} options={current.question.options} showCorrect={showCorrect} />
+              )}
+              {current.revealed && current.question.justification && (
+                <p style={{ marginTop: 16, color: 'var(--text-muted)', fontSize: '0.92rem', whiteSpace: 'pre-wrap' }}>
+                  {current.question.justification}
+                </p>
               )}
             </>
           ) : (
