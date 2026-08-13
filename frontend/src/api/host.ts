@@ -1,8 +1,17 @@
 import { apiFetch } from './client';
-import type { QuizSession, SessionHostState, SessionQuestionProgress } from './types';
+import type { QuizSession, SessionHostState, SessionQuestionProgress, SessionQuestionProgressUpdate } from './types';
 
 export function getSessionQuestions(token: string, code: string): Promise<SessionQuestionProgress[]> {
   return apiFetch<SessionQuestionProgress[]>(`/sessions/${encodeURIComponent(code)}/questions/`, { token });
+}
+
+/** Versión liviana de getSessionQuestions: solo started_at/revealed_at, sin
+ * repetir texto/opciones/imágenes que ya no cambian durante la sesión. */
+export function getSessionQuestionsProgress(token: string, code: string): Promise<SessionQuestionProgressUpdate[]> {
+  return apiFetch<SessionQuestionProgressUpdate[]>(
+    `/sessions/${encodeURIComponent(code)}/questions/?progress_only=1`,
+    { token },
+  );
 }
 
 export function getHostState(token: string, code: string, knownQuestionId?: number | null): Promise<SessionHostState> {

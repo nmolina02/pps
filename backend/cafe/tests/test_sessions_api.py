@@ -295,3 +295,38 @@ class KnownQuestionImageStrippingTests(ApiTestCase):
         )
         tally = response.data['current_question']['tally']
         self.assertTrue(all(row['image'] == '' for row in tally))
+
+
+class SessionQuestionListViewTests(ApiTestCase):
+    """GET .../questions/: la lista completa (con el contenido de cada
+    pregunta) vs. ?progress_only=1 (solo started_at/revealed_at, para no
+    repetir texto/opciones/imágenes que no cambian durante la sesión)."""
+
+    def setUp(self):
+        self.host = self.make_teacher('host')
+        self.quiz, self.question, self.correct, self.wrong = self.make_quiz_with_question(self.host)
+        self.question.image = 'data:image/png;base64,QUESTIONIMG'
+        self.question.save(update_fields=['image'])
+
+        self.auth(self.host)
+        start_response = self.client.post(f'/api/v1/docente/quizzes/{self.quiz.id}/start/')
+        self.session_code = start_response.data['code']
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/start/')
+
+    def test_full_list_includes_question_content(self):
+        response = self.client.get(f'/api/v1/sessions/{self.session_code}/questions/')
+        self.assertEqual(response.status_code, 200, response.data)
+        row = response.data[0]
+        self.assertEqual(row['question']['image'], self.question.image)
+        self.assertIsNotNone(row['started_at'])
+        self.assertIsNone(row['revealed_at'])
+
+    def test_progress_only_omits_question_content(self):
+        response = self.client.get(f'/api/v1/sessions/{self.session_code}/questions/', {'progress_only': '1'})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(set(response.data[0].keys()), {'order', 'started_at', 'revealed_at'})
+
+    def test_progress_only_reflects_reveal(self):
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/reveal/')
+        response = self.client.get(f'/api/v1/sessions/{self.session_code}/questions/', {'progress_only': '1'})
+        self.assertIsNotNone(response.data[0]['revealed_at'])

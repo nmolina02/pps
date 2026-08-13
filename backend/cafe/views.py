@@ -24,6 +24,7 @@ from .serializers import (
     QuizSerializer,
     QuizSessionSerializer,
     QuizWriteSerializer,
+    SessionQuestionProgressSerializer,
     SessionQuestionSerializer,
     ShareQuizzesWithComisionesSerializer,
     StudentPreferencesSerializer,
@@ -497,7 +498,12 @@ class SessionHostStateView(views.APIView):
 
 class SessionQuestionListView(views.APIView):
     """Lista ordenada de las preguntas de una sesión con su progreso (started_at/
-    revealed_at), para que el dashboard del docente sepa qué sigue sin adivinarlo."""
+    revealed_at), para que el dashboard del docente sepa qué sigue sin adivinarlo.
+    El contenido de cada pregunta (texto, opciones, imágenes) no cambia durante
+    la sesión, pero este endpoint se vuelve a pedir después de cada acción del
+    docente -- con ?progress_only=1 se omite ese contenido y se devuelve solo lo
+    que sí puede haber cambiado, para no repetir potencialmente varios MB de
+    imágenes en cada refresco."""
 
     permission_classes = [permissions.IsAuthenticated, IsSessionHost]
 
@@ -509,6 +515,8 @@ class SessionQuestionListView(views.APIView):
             .prefetch_related('question__options')
             .order_by('question__order')
         )
+        if request.query_params.get('progress_only') == '1':
+            return Response(SessionQuestionProgressSerializer(questions, many=True).data)
         return Response(SessionQuestionSerializer(questions, many=True).data)
 
 

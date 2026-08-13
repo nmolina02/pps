@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
-import { cancelSession, finishSession, getHostState, getSessionQuestions, revealQuestion, startQuestion } from '../api/host';
+import {
+  cancelSession,
+  finishSession,
+  getHostState,
+  getSessionQuestions,
+  getSessionQuestionsProgress,
+  revealQuestion,
+  startQuestion,
+} from '../api/host';
 import type { SessionHostState, SessionQuestionProgress } from '../api/types';
 import { ZoomableImage } from '../components/ZoomableImage';
 import { createImageCache, hydrateHostQuestion } from '../utils/imageCache';
@@ -20,11 +28,31 @@ export function HostDashboardPage() {
   const [showCorrect, setShowCorrect] = useState(false);
   const imageCacheRef = useRef(createImageCache());
   const knownQuestionIdRef = useRef<number | null>(null);
+  const hasFullProgressRef = useRef(false);
 
   const refreshProgress = useCallback(() => {
     if (!docente) return;
-    getSessionQuestions(docente.token, code)
-      .then(setProgress)
+    if (!hasFullProgressRef.current) {
+      getSessionQuestions(docente.token, code)
+        .then((data) => {
+          hasFullProgressRef.current = true;
+          setProgress(data);
+        })
+        .catch(() => undefined);
+      return;
+    }
+    // el contenido de cada pregunta (texto, opciones, imágenes) no cambia
+    // durante la sesión -- solo pedimos de nuevo lo que sí puede cambiar.
+    getSessionQuestionsProgress(docente.token, code)
+      .then((updates) => {
+        const byOrder = new Map(updates.map((u) => [u.order, u]));
+        setProgress((prev) =>
+          prev.map((p) => {
+            const update = byOrder.get(p.order);
+            return update ? { ...p, started_at: update.started_at, revealed_at: update.revealed_at } : p;
+          }),
+        );
+      })
       .catch(() => undefined);
   }, [docente, code]);
 

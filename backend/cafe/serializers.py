@@ -378,6 +378,17 @@ class SessionQuestionSerializer(serializers.ModelSerializer):
         fields = ['order', 'points', 'duration_seconds', 'grace_seconds', 'started_at', 'revealed_at', 'question']
 
 
+class SessionQuestionProgressSerializer(serializers.ModelSerializer):
+    """Versión liviana de SessionQuestionSerializer: solo lo que puede cambiar
+    entre refrescos de la barra de progreso del docente (started_at/revealed_at)
+    -- sin repetir el contenido de la pregunta (texto, opciones, imágenes),
+    que no cambia durante la sesión y puede pesar varios MB en total."""
+
+    class Meta:
+        model = SessionQuestion
+        fields = ['order', 'started_at', 'revealed_at']
+
+
 class SubmitAnswerSerializer(serializers.Serializer):
     participant_id = serializers.IntegerField()
     option_ids = serializers.ListField(

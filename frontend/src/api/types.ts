@@ -197,6 +197,15 @@ export interface SessionQuestionProgress {
   question: Question;
 }
 
+/** Respuesta de GET .../questions/?progress_only=1 -- lo único que puede
+ * cambiar entre refrescos de la barra de progreso, sin el contenido pesado
+ * (texto, opciones, imágenes) de SessionQuestionProgress.question. */
+export interface SessionQuestionProgressUpdate {
+  order: number;
+  started_at: string | null;
+  revealed_at: string | null;
+}
+
 export interface CreateSessionQuestionOptionInput {
   text: string;
   image: string;
