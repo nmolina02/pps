@@ -8,10 +8,14 @@ export function joinSession(code: string, legajo: string): Promise<Participant> 
   });
 }
 
-export function getStudentSessionState(code: string, participantId: number): Promise<SessionStudentState> {
-  return apiFetch<SessionStudentState>(
-    `/sessions/${encodeURIComponent(code)}/state/?participant_id=${participantId}`,
-  );
+export function getStudentSessionState(
+  code: string,
+  participantId: number,
+  knownQuestionId?: number | null,
+): Promise<SessionStudentState> {
+  const params = new URLSearchParams({ participant_id: String(participantId) });
+  if (knownQuestionId) params.set('known_question_id', String(knownQuestionId));
+  return apiFetch<SessionStudentState>(`/sessions/${encodeURIComponent(code)}/state/?${params.toString()}`);
 }
 
 export function submitAnswer(

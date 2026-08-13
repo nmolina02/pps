@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDocente } from '../context/DocenteContext';
 import { cancelSession, finishSession, getHostState, getSessionQuestions, revealQuestion, startQuestion } from '../api/host';
 import type { SessionHostState, SessionQuestionProgress } from '../api/types';
 import { ZoomableImage } from '../components/ZoomableImage';
+import { createImageCache, hydrateHostQuestion } from '../utils/imageCache';
 
 const HOST_POLL_INTERVAL_MS = 1000;
 
@@ -17,6 +18,8 @@ export function HostDashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCorrect, setShowCorrect] = useState(false);
+  const imageCacheRef = useRef(createImageCache());
+  const knownQuestionIdRef = useRef<number | null>(null);
 
   const refreshProgress = useCallback(() => {
     if (!docente) return;
@@ -34,8 +37,15 @@ export function HostDashboardPage() {
     let cancelled = false;
     async function poll() {
       try {
-        const data = await getHostState(docente!.token, code);
-        if (!cancelled) setState(data);
+        const data = await getHostState(docente!.token, code, knownQuestionIdRef.current);
+        if (cancelled) return;
+        if (data.current_question) {
+          data.current_question = hydrateHostQuestion(data.current_question, imageCacheRef.current);
+          knownQuestionIdRef.current = data.current_question.question.id;
+        } else {
+          knownQuestionIdRef.current = null;
+        }
+        setState(data);
       } catch {
         // se reintenta en el próximo ciclo
       }

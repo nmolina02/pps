@@ -5,6 +5,7 @@ import { getStudentSessionState, joinSession, submitAnswer } from '../api/sessio
 import type { SessionStudentState } from '../api/types';
 import { ApiError } from '../api/client';
 import { ZoomableImage } from '../components/ZoomableImage';
+import { createImageCache, hydrateStudentQuestion } from '../utils/imageCache';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -24,6 +25,8 @@ export function PlayPage() {
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [displaySeconds, setDisplaySeconds] = useState<number | null>(null);
   const lastOrderRef = useRef<number | null>(null);
+  const imageCacheRef = useRef(createImageCache());
+  const knownQuestionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -54,8 +57,14 @@ export function PlayPage() {
 
     async function poll() {
       try {
-        const data = await getStudentSessionState(code, participantId as number);
+        const data = await getStudentSessionState(code, participantId as number, knownQuestionIdRef.current);
         if (cancelled) return;
+        if (data.current_question) {
+          data.current_question = hydrateStudentQuestion(data.current_question, imageCacheRef.current);
+          knownQuestionIdRef.current = data.current_question.question.id;
+        } else {
+          knownQuestionIdRef.current = null;
+        }
         setState(data);
         const order = data.current_question?.order ?? null;
         if (order !== lastOrderRef.current) {

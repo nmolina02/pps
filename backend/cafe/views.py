@@ -153,7 +153,22 @@ def _create_quiz_questions(quiz, questions_data):
         )
 
 
-def _host_state_payload(session):
+def _strip_known_images(question_state, current_question_id, known_question_id):
+    """El cliente nos avisa con ?known_question_id= qué pregunta ya tiene
+    cargada con sus imágenes -- mientras sea la misma (la pregunta activa no
+    cambia entre polls), no hace falta repetirlas: cada una puede pesar
+    decenas de KB y esto se pide 1-2 veces por segundo por cliente."""
+    if not known_question_id or str(known_question_id) != str(current_question_id):
+        return
+    question_state['question']['image'] = ''
+    for option in question_state['question'].get('options', []):
+        option['image'] = ''
+    for row in question_state.get('tally') or []:
+        if 'image' in row:
+            row['image'] = ''
+
+
+def _host_state_payload(session, known_question_id=None):
     current = _current_question(session)
     payload = {
         'session': QuizSessionSerializer(session).data,
@@ -162,7 +177,7 @@ def _host_state_payload(session):
         'current_question': None,
     }
     if current:
-        payload['current_question'] = {
+        question_state = {
             'order': current.order,
             'points': current.points,
             'duration_seconds': current.duration_seconds,
@@ -173,6 +188,8 @@ def _host_state_payload(session):
             'question': QuestionSerializer(current.question).data,
             'tally': _tally(current),
         }
+        _strip_known_images(question_state, current.question_id, known_question_id)
+        payload['current_question'] = question_state
     return payload
 
 
@@ -474,7 +491,8 @@ class SessionHostStateView(views.APIView):
     def get(self, request, code):
         session = get_object_or_404(QuizSession, code=code)
         self.check_object_permissions(request, session)
-        return Response(_host_state_payload(session))
+        known_question_id = request.query_params.get('known_question_id')
+        return Response(_host_state_payload(session, known_question_id))
 
 
 class SessionQuestionListView(views.APIView):
@@ -503,6 +521,7 @@ class SessionStudentStateView(views.APIView):
         if participant_id:
             participant = Participant.objects.filter(id=participant_id, session=session).first()
 
+        known_question_id = request.query_params.get('known_question_id')
         current = _current_question(session)
         payload = {'session': QuizSessionSerializer(session).data, 'current_question': None}
 
@@ -549,6 +568,7 @@ class SessionStudentStateView(views.APIView):
                         'is_correct': own_answer.is_correct,
                         'score': own_answer.score,
                     }
+            _strip_known_images(question_payload, current.question_id, known_question_id)
             payload['current_question'] = question_payload
 
         return Response(payload)

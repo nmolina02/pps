@@ -228,3 +228,70 @@ class FullSessionFlowTests(ApiTestCase):
         self.auth(self.host)
         response = self.client.post(f'/api/v1/sessions/{adhoc_session.code}/finish/')
         self.assertEqual(response.status_code, 200, response.data)
+
+
+class KnownQuestionImageStrippingTests(ApiTestCase):
+    """?known_question_id= le permite al cliente evitar que se le reenvíen
+    las imágenes de una pregunta que ya tiene -- pesan bastante y se pedían
+    de nuevo en cada poll (1-2 veces por segundo) sin necesidad."""
+
+    def setUp(self):
+        self.host = self.make_teacher('host')
+        self.quiz, self.question, self.correct, self.wrong = self.make_quiz_with_question(self.host)
+        self.question.image = 'data:image/png;base64,QUESTIONIMG'
+        self.question.save(update_fields=['image'])
+        self.correct.image = 'data:image/png;base64,OPTIONIMG'
+        self.correct.save(update_fields=['image'])
+
+        self.make_student(legajo='111', full_name='Ada')
+
+        self.auth(self.host)
+        start_response = self.client.post(f'/api/v1/docente/quizzes/{self.quiz.id}/start/')
+        self.session_code = start_response.data['code']
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/start/')
+
+        join_response = self.client.post(f'/api/v1/sessions/{self.session_code}/join/', {'legajo': '111'})
+        self.participant_id = join_response.data['id']
+
+    def test_student_state_includes_images_without_a_known_question_id(self):
+        response = self.client.get(
+            f'/api/v1/sessions/{self.session_code}/state/', {'participant_id': self.participant_id}
+        )
+        question = response.data['current_question']['question']
+        self.assertEqual(question['image'], self.question.image)
+        self.assertTrue(any(o['image'] for o in question['options']))
+
+    def test_student_state_blanks_images_when_the_client_already_has_them(self):
+        response = self.client.get(
+            f'/api/v1/sessions/{self.session_code}/state/',
+            {'participant_id': self.participant_id, 'known_question_id': self.question.id},
+        )
+        question = response.data['current_question']['question']
+        self.assertEqual(question['image'], '')
+        self.assertTrue(all(o['image'] == '' for o in question['options']))
+
+    def test_student_state_still_sends_images_for_a_different_known_question_id(self):
+        response = self.client.get(
+            f'/api/v1/sessions/{self.session_code}/state/',
+            {'participant_id': self.participant_id, 'known_question_id': self.question.id + 999},
+        )
+        question = response.data['current_question']['question']
+        self.assertEqual(question['image'], self.question.image)
+
+    def test_host_state_blanks_images_when_the_client_already_has_them(self):
+        full_response = self.client.get(f'/api/v1/sessions/{self.session_code}/host-state/')
+        self.assertEqual(full_response.data['current_question']['question']['image'], self.question.image)
+
+        stripped_response = self.client.get(
+            f'/api/v1/sessions/{self.session_code}/host-state/', {'known_question_id': self.question.id}
+        )
+        stripped_question = stripped_response.data['current_question']['question']
+        self.assertEqual(stripped_question['image'], '')
+        self.assertTrue(all(o['image'] == '' for o in stripped_question['options']))
+
+    def test_host_state_tally_images_are_also_stripped(self):
+        response = self.client.get(
+            f'/api/v1/sessions/{self.session_code}/host-state/', {'known_question_id': self.question.id}
+        )
+        tally = response.data['current_question']['tally']
+        self.assertTrue(all(row['image'] == '' for row in tally))
