@@ -667,7 +667,21 @@ class SubmitAnswerView(views.APIView):
         # guardado, pero el alumno no se entera de si acertó hasta que el
         # docente revele la pregunta (SessionStudentStateView es quien lo
         # expone, y solo una vez revealed_at está seteado).
-        return Response({'submitted': True}, status=status.HTTP_201_CREATED)
+        #
+        # DIAGNÓSTICO TEMPORAL (sacar después de medir el impacto real del
+        # fix de arrived_at bajo carga): réplica exacta del chequeo viejo
+        # (timezone.now() en vez de arrived_at, sin el gate de revealed_at)
+        # para saber si esta misma respuesta, aceptada ahora, se habría
+        # rechazado injustamente con el código anterior.
+        old_style_deadline = session_question.started_at + timezone.timedelta(
+            seconds=session_question.duration_seconds + session_question.grace_seconds
+        )
+        would_have_been_rejected_by_old_check = timezone.now() > old_style_deadline
+
+        return Response(
+            {'submitted': True, 'would_have_been_rejected_by_old_check': would_have_been_rejected_by_old_check},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class StudentProfileView(views.APIView):

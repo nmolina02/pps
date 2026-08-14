@@ -34,13 +34,21 @@ DocenteUser conduce toda la sesión (fixed_count=1) sin importar cuántos
 import itertools
 import os
 import random
+import time
 
 import gevent
-from locust import HttpUser, between, task
+from locust import HttpUser, between, events, task
 
 DOCENTE_USERNAME = os.environ["DOCENTE_USERNAME"]
 DOCENTE_PASSWORD = os.environ["DOCENTE_PASSWORD"]
 QUIZ_ID = int(os.environ["QUIZ_ID"])
+
+# Diagnóstico temporal: cuenta cuántas respuestas se aceptaron, cuántas se
+# rechazaron por deadline_passed, y de las aceptadas, cuántas se habrían
+# rechazado injustamente con el chequeo viejo (timezone.now() en vez de
+# arrived_at) -- ver el campo would_have_been_rejected_by_old_check que
+# devuelve SubmitAnswerView mientras dure esta medición.
+answer_diagnostics = {"accepted": 0, "saved_by_fix": 0, "rejected_deadline_passed": 0, "other_errors": 0}
 
 LEGAJO_COUNT = int(os.environ.get("LOCUST_LEGAJO_COUNT", "60"))
 if os.environ.get("LOCUST_LEGAJO_START"):
@@ -56,7 +64,9 @@ else:
 # pausa entre revelar y arrancar la siguiente. Ajustalos para que se
 # parezcan a los tiempos reales de una clase.
 QUESTION_OPEN_SECONDS = float(os.environ.get("LOCUST_QUESTION_SECONDS", "20"))
-BETWEEN_QUESTIONS_SECONDS = float(os.environ.get("LOCUST_BETWEEN_QUESTIONS_SECONDS", "5"))
+# La explicación del docente tras revelar dura ~20-30s como mínimo en una
+# clase real -- nunca menos que eso.
+BETWEEN_QUESTIONS_SECONDS = float(os.environ.get("LOCUST_BETWEEN_QUESTIONS_SECONDS", "25"))
 
 # Estado compartido entre el docente y los alumnos simulados: la sesión no
 # existe hasta que DocenteUser.on_start la crea, así que los alumnos esperan
@@ -141,6 +151,13 @@ class AlumnoUser(HttpUser):
         self.code = session_state["code"]
         self.legajo = next(_legajo_pool)
         self.answered_orders = set()
+        self._question_first_seen_at = {}
+        # cuánto "piensa" este alumno antes de contestar -- no instantáneo
+        # (no realista) pero tampoco al filo del deadline (eso mide otra
+        # cosa: decisión tardía del alumno, no si el servidor pierde
+        # respuestas que llegaron bien a tiempo, que es lo que queremos
+        # medir acá). Todos quedan cómodamente dentro del límite visible.
+        self.answer_delay_seconds = random.uniform(2, 8)
 
         resp = self.client.post(
             f"/api/v1/sessions/{self.code}/join/",
@@ -171,13 +188,42 @@ class AlumnoUser(HttpUser):
         if not current["accepts_answers"] or current.get("has_answered"):
             return
 
+        order = current["order"]
+        first_seen_at = self._question_first_seen_at.setdefault(order, time.monotonic())
+        if time.monotonic() - first_seen_at < self.answer_delay_seconds:
+            return  # todavía "pensando" -- contesta más adelante, bien dentro del límite
+
         options = current["question"].get("options") or []
         option_ids = [random.choice(options)["id"]] if options else []
         free_text = "" if options else "respuesta de prueba"
 
-        self.client.post(
-            f"/api/v1/sessions/{self.code}/questions/{current['order']}/answer/",
+        resp = self.client.post(
+            f"/api/v1/sessions/{self.code}/questions/{order}/answer/",
             json={"participant_id": self.participant_id, "option_ids": option_ids, "free_text": free_text},
             name="/sessions/[code]/questions/[order]/answer/",
         )
-        self.answered_orders.add(current["order"])
+        self.answered_orders.add(order)
+
+        if resp.status_code == 201:
+            answer_diagnostics["accepted"] += 1
+            if resp.json().get("would_have_been_rejected_by_old_check"):
+                answer_diagnostics["saved_by_fix"] += 1
+        elif resp.status_code == 403:
+            answer_diagnostics["rejected_deadline_passed"] += 1
+        elif resp.status_code >= 400:
+            answer_diagnostics["other_errors"] += 1
+
+
+@events.quitting.add_listener
+def _report_answer_diagnostics(environment, **kwargs):
+    d = answer_diagnostics
+    total = d["accepted"] + d["rejected_deadline_passed"] + d["other_errors"]
+    print(
+        "\n=== Diagnóstico de respuestas (todas mandadas dentro del límite visible) ===\n"
+        f"  Total intentos:                 {total}\n"
+        f"  Aceptadas:                      {d['accepted']}\n"
+        f"    -> salvadas por el fix        {d['saved_by_fix']} "
+        "(se habrían rechazado con el chequeo viejo, ahora se aceptaron)\n"
+        f"  Rechazadas (deadline_passed):   {d['rejected_deadline_passed']}\n"
+        f"  Otros errores (429/500/etc.):   {d['other_errors']}\n"
+    )
