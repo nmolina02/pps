@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from cafe.models import Answer, Participant, QuizAttempt, QuizSession, SessionQuestion
 from cafe.tests.base import ApiTestCase
-from cafe.throttling import SessionPollThrottle
+from cafe.throttling import SessionActionThrottle, SessionPollThrottle
 
 
 class QuizStartViewTests(ApiTestCase):
@@ -440,3 +440,48 @@ class SessionPollThrottleTests(ApiTestCase):
         # afecta a session_poll) -- antes del fix compartían un solo balde.
         topics_response = self.client.get('/api/v1/topics/')
         self.assertEqual(topics_response.status_code, 200)
+
+
+class SessionActionThrottleTests(ApiTestCase):
+    """/join/ y /answer/ usan su propio scope (session_action) en vez del
+    'anon' genérico -- mismo motivo que /state/: en una ráfaga (todo el
+    curso uniéndose o contestando cerca del mismo momento) podían agotar
+    el balde compartido con el resto de la API."""
+
+    def setUp(self):
+        self.host = self.make_teacher('host')
+        self.quiz, self.question, self.correct, self.wrong = self.make_quiz_with_question(self.host)
+        self.make_student(legajo='111', full_name='Ada')
+        self.auth(self.host)
+        start_response = self.client.post(f'/api/v1/docente/quizzes/{self.quiz.id}/start/')
+        self.session_code = start_response.data['code']
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/start/')
+        self.client.force_authenticate(user=None)
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_join_is_throttled_by_its_own_scope(self):
+        with mock.patch.object(SessionActionThrottle, 'THROTTLE_RATES', {'session_action': '1/minute'}):
+            first = self.client.post(f'/api/v1/sessions/{self.session_code}/join/', {'legajo': '111'})
+            second = self.client.post(f'/api/v1/sessions/{self.session_code}/join/', {'legajo': '111'})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
+
+    def test_answer_is_throttled_by_its_own_scope_not_shared_with_state_polling(self):
+        join_response = self.client.post(f'/api/v1/sessions/{self.session_code}/join/', {'legajo': '111'})
+        participant_id = join_response.data['id']
+        cache.clear()  # el join ya consumió cupo del scope -- no cuenta para este assert
+
+        with mock.patch.object(SessionActionThrottle, 'THROTTLE_RATES', {'session_action': '1/minute'}):
+            first = self.client.post(
+                f'/api/v1/sessions/{self.session_code}/questions/1/answer/',
+                {'participant_id': participant_id, 'option_ids': [self.correct.id]},
+                format='json',
+            )
+            exhausted = self.client.get(f'/api/v1/sessions/{self.session_code}/state/', {'participant_id': participant_id})
+        self.assertEqual(first.status_code, 201, first.data)
+        # /state/ usa session_poll, un scope totalmente distinto -- agotar
+        # session_action contestando no debería afectarlo.
+        self.assertEqual(exhausted.status_code, 200)

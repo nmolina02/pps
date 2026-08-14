@@ -5,13 +5,23 @@ services:
     plan: free
     rootDir: backend
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    # config.asgi (no wsgi) + worker uvicorn: el estado en vivo de una sesión
+    # ahora se sirve por Server-Sent Events (cafe/streaming.py), que necesita
+    # un servidor ASGI -- las vistas sync existentes (incluida toda la API
+    # REST) siguen andando igual bajo ASGI, Django las envuelve solo.
+    # --timeout 0 porque una respuesta de streaming se queda "en silencio"
+    # entre eventos, y el timeout de gunicorn mataría la conexión si no.
     # workers=2 en vez de 1 (el default) para no serializar todos los
-    # requests detrás de un solo proceso; gthread+threads=2 suma
-    # concurrencia de I/O sin pagar el costo completo de memoria de más
-    # procesos -- conservador a propósito para no pasarse de los 512MB
-    # del free tier (ver backend/loadtest/locustfile.py para volver a
-    # medir el efecto real antes de subir estos números).
-    startCommand: "gunicorn config.wsgi:application --workers 2 --worker-class gthread --threads 2"
+    # requests detrás de un solo proceso -- conservador a propósito para no
+    # pasarse de los 512MB del free tier (ver backend/loadtest/locustfile.py
+    # para volver a medir el efecto real antes de subir este número).
+    # max-requests recicla cada worker preventivamente cada ~500-550
+    # requests (jitter para no sincronizar los reinicios de los dos
+    # workers) -- evita que un worker se vaya degradando de a poco bajo
+    # memoria ajustada hasta terminar devolviendo 502; en el peor caso corta
+    # una conexión SSE activa, pero con reconexión automática es solo un
+    # blip.
+    startCommand: "gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --workers 2 --timeout 0 --max-requests 500 --max-requests-jitter 50"
     healthCheckPath: /admin/login/
     envVars:
       - key: SECRET_KEY

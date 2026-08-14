@@ -4,7 +4,7 @@
     {
       "name": "backend",
       "runtimeExecutable": "C:\\Users\\Usuario\\Documents\\1-PPS\\repo\\pps\\backend\\venv\\Scripts\\python.exe",
-      "runtimeArgs": ["backend/manage.py", "runserver", "8000"],
+      "runtimeArgs": ["-m", "uvicorn", "config.asgi:application", "--reload", "--port", "8000", "--app-dir", "backend"],
       "port": 8000
     },
     {

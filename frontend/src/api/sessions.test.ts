@@ -20,11 +20,13 @@ describe('submitAnswer', () => {
     vi.unstubAllGlobals();
   });
 
-  it('resolves immediately when the first attempt succeeds', async () => {
+  it('sends the request (after the initial jitter) when the first attempt succeeds', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { submitted: true }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await submitAnswer('ABC123', 1, { participant_id: 1, option_ids: [2] });
+    const promise = submitAnswer('ABC123', 1, { participant_id: 1, option_ids: [2] });
+    await vi.advanceTimersByTimeAsync(3000);
+    const result = await promise;
 
     expect(result).toEqual({ submitted: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -40,7 +42,7 @@ describe('submitAnswer', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const promise = submitAnswer('ABC123', 1, { participant_id: 1, option_ids: [2] });
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(5000);
     const result = await promise;
 
     expect(result).toEqual({ submitted: true });
@@ -55,7 +57,7 @@ describe('submitAnswer', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const promise = submitAnswer('ABC123', 1, { participant_id: 1 });
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(5000);
     const result = await promise;
 
     expect(result).toEqual({ submitted: true });
@@ -68,10 +70,11 @@ describe('submitAnswer', () => {
       .mockResolvedValue(jsonResponse(403, { error: { code: 'deadline_passed', message: 'x', details: {} } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(submitAnswer('ABC123', 1, { participant_id: 1 })).rejects.toMatchObject({
-      status: 403,
-      code: 'deadline_passed',
-    });
+    const promise = submitAnswer('ABC123', 1, { participant_id: 1 });
+    const assertion = expect(promise).rejects.toMatchObject({ status: 403, code: 'deadline_passed' });
+    await vi.advanceTimersByTimeAsync(3000);
+    await assertion;
+
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

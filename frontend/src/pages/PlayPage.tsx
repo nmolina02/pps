@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProfile } from '../context/ProfileContext';
-import { getStudentSessionState, joinSession, submitAnswer } from '../api/sessions';
+import { joinSession, streamStudentSessionState, submitAnswer } from '../api/sessions';
 import type { SessionStudentState } from '../api/types';
 import { ApiError } from '../api/client';
 import { ZoomableImage } from '../components/ZoomableImage';
 import { createImageCache, hydrateStudentQuestion } from '../utils/imageCache';
-
-const POLL_INTERVAL_MS = 2000;
 
 export function PlayPage() {
   const { code = '' } = useParams<{ code: string }>();
@@ -17,6 +15,7 @@ export function PlayPage() {
   const [state, setState] = useState<SessionStudentState | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [sessionGone, setSessionGone] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
 
   const [selectedOptions, setSelectedOptions] = useState<number[]>([]);
   const [freeText, setFreeText] = useState('');
@@ -26,7 +25,7 @@ export function PlayPage() {
   const [displaySeconds, setDisplaySeconds] = useState<number | null>(null);
   const lastOrderRef = useRef<number | null>(null);
   const imageCacheRef = useRef(createImageCache());
-  const knownQuestionIdRef = useRef<number | null>(null);
+  const sessionFinishedRef = useRef(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -52,45 +51,43 @@ export function PlayPage() {
 
   useEffect(() => {
     if (participantId === null) return;
-    let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval>;
+    const eventSource = streamStudentSessionState(code, participantId);
 
-    async function poll() {
-      try {
-        const data = await getStudentSessionState(code, participantId as number, knownQuestionIdRef.current);
-        if (cancelled) return;
-        if (data.current_question) {
-          data.current_question = hydrateStudentQuestion(data.current_question, imageCacheRef.current);
-          knownQuestionIdRef.current = data.current_question.question.id;
-        } else {
-          knownQuestionIdRef.current = null;
-        }
-        setState(data);
-        const order = data.current_question?.order ?? null;
-        if (order !== lastOrderRef.current) {
-          lastOrderRef.current = order;
-          setSelectedOptions([]);
-          setFreeText('');
-          setJustSubmitted(false);
-          setSubmitError(null);
-        }
-        setDisplaySeconds(data.current_question?.time_remaining_seconds ?? null);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) {
-          // el docente canceló la sesión: ya no tiene sentido seguir pollendo
-          setSessionGone(true);
-          clearInterval(intervalId);
-        }
-        // otros errores: se reintenta en el próximo ciclo de polling
+    eventSource.onopen = () => setReconnecting(false);
+    eventSource.onerror = () => setReconnecting(true);
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data) as SessionStudentState;
+      if (data.session.status === 'finished') sessionFinishedRef.current = true;
+      if (data.current_question) {
+        data.current_question = hydrateStudentQuestion(data.current_question, imageCacheRef.current);
       }
-    }
+      setState(data);
+      const order = data.current_question?.order ?? null;
+      if (order !== lastOrderRef.current) {
+        lastOrderRef.current = order;
+        setSelectedOptions([]);
+        setFreeText('');
+        setJustSubmitted(false);
+        setSubmitError(null);
+      }
+      setDisplaySeconds(data.current_question?.time_remaining_seconds ?? null);
+    };
 
-    poll();
-    intervalId = setInterval(poll, POLL_INTERVAL_MS);
+    eventSource.addEventListener('session_ended', () => {
+      // el servidor cerró el stream a propósito (terminó o se canceló) --
+      // cerrar acá también, si no EventSource reintenta solo y termina en
+      // un loop de reconexión contra una sesión que ya no va a cambiar.
+      eventSource.close();
+      // si ya vimos session.status === 'finished' por un mensaje normal, la
+      // pantalla de "gracias por participar" ya se está mostrando -- esto
+      // solo pasa cuando la sesión desaparece sin haber terminado (el
+      // docente la canceló).
+      if (!sessionFinishedRef.current) setSessionGone(true);
+    });
+
     return () => {
-      cancelled = true;
-      clearInterval(intervalId);
+      eventSource.close();
     };
   }, [code, participantId]);
 
@@ -199,6 +196,11 @@ export function PlayPage() {
 
   return (
     <div className="container" style={{ padding: '40px 24px 72px', maxWidth: 640 }}>
+      {reconnecting && (
+        <p className="mono cursor" style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+          reconectando…
+        </p>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
           pregunta {String(q.order).padStart(2, '0')} · {q.question.question_type === 'survey' ? 'encuesta' : `${q.points} pts`}

@@ -208,5 +208,9 @@ REST_FRAMEWORK = {
         # la misma IP detrás del proxy de Render, así que necesita un techo
         # propio bien por encima del genérico de 'anon' (ver cafe/throttling.py).
         'session_poll': '3000/minute',
+        # /join/ y /answer/ no son polling continuo, pero en una ráfaga (todo
+        # el curso uniéndose, o contestando cerca del mismo momento) pueden
+        # agotar el balde 'anon' genérico igual.
+        'session_action': '1000/minute',
     },
 }

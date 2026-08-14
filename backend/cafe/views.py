@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizAttempt, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsCaseAuthor, IsSessionHost
-from .throttling import SessionPollThrottle
+from .throttling import SessionActionThrottle, SessionPollThrottle
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
@@ -376,6 +376,8 @@ class QuizStartView(views.APIView):
 
 
 class JoinSessionView(views.APIView):
+    throttle_classes = [SessionActionThrottle]
+
     def post(self, request, code):
         session = get_object_or_404(QuizSession, code=code)
         serializer = JoinSessionSerializer(data=request.data)
@@ -521,6 +523,93 @@ class SessionQuestionListView(views.APIView):
         return Response(SessionQuestionSerializer(questions, many=True).data)
 
 
+def _student_state_payload(session, participant, known_question_id):
+    current = _current_question(session)
+    payload = {'session': QuizSessionSerializer(session).data, 'current_question': None}
+
+    if current:
+        has_answered = bool(
+            participant
+            and Answer.objects.filter(
+                participant=participant, session_question=current
+            ).exists()
+        )
+        shuffled = _shuffled_options(current.question, participant)
+        question_data = QuestionPublicSerializer(current.question).data
+        question_data['options'] = QuestionOptionPublicSerializer(shuffled, many=True).data
+        question_payload = {
+            'order': current.order,
+            'points': current.points,
+            'duration_seconds': current.duration_seconds,
+            'time_remaining_seconds': _time_remaining(current),
+            'accepts_answers': current.accepts_answers,
+            'has_answered': has_answered,
+            'revealed': current.revealed_at is not None,
+            'question': question_data,
+        }
+        if current.revealed_at is not None:
+            tally_rows = _tally(current)
+            if current.question.question_type != Question.Type.FILL_BLANK:
+                votes_by_id = {row['id']: row['votes'] for row in tally_rows}
+                tally_rows = [
+                    {'id': o.id, 'text': o.text, 'image': o.image, 'votes': votes_by_id.get(o.id, 0)}
+                    for o in shuffled
+                ]
+            question_payload['tally'] = tally_rows
+            question_payload['correct_option_ids'] = list(
+                current.question.options.filter(is_correct=True).values_list('id', flat=True)
+            )
+            question_payload['justification'] = current.question.justification
+            own_answer = (
+                Answer.objects.filter(participant=participant, session_question=current).first()
+                if participant
+                else None
+            )
+            if own_answer:
+                question_payload['your_result'] = {
+                    'is_correct': own_answer.is_correct,
+                    'score': own_answer.score,
+                }
+        _strip_known_images(question_payload, current.question_id, known_question_id)
+        payload['current_question'] = question_payload
+
+    return payload
+
+
+def _payload_question_id(payload):
+    current = payload.get('current_question')
+    return current['question']['id'] if current else None
+
+
+def _build_student_payload(code, participant_id, known_question_id):
+    """Wrapper sync para el generador SSE del alumno (cafe/streaming.py) --
+    vuelve a consultar todo fresco en cada tick. Devuelve (None, None, False)
+    si la sesión ya no existe (se canceló), para que el stream se pueda
+    cerrar prolijo en vez de reventar con un 404 a mitad de un generador
+    async."""
+    session = QuizSession.objects.filter(code=code).first()
+    if session is None:
+        return None, None, False
+    participant = Participant.objects.filter(id=participant_id, session=session).first() if participant_id else None
+    payload = _student_state_payload(session, participant, known_question_id)
+    return payload, _payload_question_id(payload), session.status == QuizSession.Status.FINISHED
+
+
+def _build_host_payload(code, known_question_id):
+    """Mismo rol que _build_student_payload pero para el stream del docente."""
+    session = QuizSession.objects.filter(code=code).first()
+    if session is None:
+        return None, None, False
+    payload = _host_state_payload(session, known_question_id)
+    return payload, _payload_question_id(payload), session.status == QuizSession.Status.FINISHED
+
+
+def _session_host_id(code):
+    """Consulta liviana usada por el stream del docente (cafe/streaming.py)
+    para chequear pertenencia sin armar el payload completo primero."""
+    return QuizSession.objects.filter(code=code).values_list('host_id', flat=True).first()
+
+
 class SessionStudentStateView(views.APIView):
     throttle_classes = [SessionPollThrottle]
 
@@ -533,59 +622,13 @@ class SessionStudentStateView(views.APIView):
             participant = Participant.objects.filter(id=participant_id, session=session).first()
 
         known_question_id = request.query_params.get('known_question_id')
-        current = _current_question(session)
-        payload = {'session': QuizSessionSerializer(session).data, 'current_question': None}
-
-        if current:
-            has_answered = bool(
-                participant
-                and Answer.objects.filter(
-                    participant=participant, session_question=current
-                ).exists()
-            )
-            shuffled = _shuffled_options(current.question, participant)
-            question_data = QuestionPublicSerializer(current.question).data
-            question_data['options'] = QuestionOptionPublicSerializer(shuffled, many=True).data
-            question_payload = {
-                'order': current.order,
-                'points': current.points,
-                'duration_seconds': current.duration_seconds,
-                'time_remaining_seconds': _time_remaining(current),
-                'accepts_answers': current.accepts_answers,
-                'has_answered': has_answered,
-                'revealed': current.revealed_at is not None,
-                'question': question_data,
-            }
-            if current.revealed_at is not None:
-                tally_rows = _tally(current)
-                if current.question.question_type != Question.Type.FILL_BLANK:
-                    votes_by_id = {row['id']: row['votes'] for row in tally_rows}
-                    tally_rows = [
-                        {'id': o.id, 'text': o.text, 'image': o.image, 'votes': votes_by_id.get(o.id, 0)}
-                        for o in shuffled
-                    ]
-                question_payload['tally'] = tally_rows
-                question_payload['correct_option_ids'] = list(
-                    current.question.options.filter(is_correct=True).values_list('id', flat=True)
-                )
-                question_payload['justification'] = current.question.justification
-                own_answer = (
-                    Answer.objects.filter(participant=participant, session_question=current).first()
-                    if participant
-                    else None
-                )
-                if own_answer:
-                    question_payload['your_result'] = {
-                        'is_correct': own_answer.is_correct,
-                        'score': own_answer.score,
-                    }
-            _strip_known_images(question_payload, current.question_id, known_question_id)
-            payload['current_question'] = question_payload
-
+        payload = _student_state_payload(session, participant, known_question_id)
         return Response(payload)
 
 
 class SubmitAnswerView(views.APIView):
+    throttle_classes = [SessionActionThrottle]
+
     def post(self, request, code, order):
         session = get_object_or_404(QuizSession, code=code)
         session_question = get_object_or_404(
@@ -667,21 +710,7 @@ class SubmitAnswerView(views.APIView):
         # guardado, pero el alumno no se entera de si acertó hasta que el
         # docente revele la pregunta (SessionStudentStateView es quien lo
         # expone, y solo una vez revealed_at está seteado).
-        #
-        # DIAGNÓSTICO TEMPORAL (sacar después de medir el impacto real del
-        # fix de arrived_at bajo carga): réplica exacta del chequeo viejo
-        # (timezone.now() en vez de arrived_at, sin el gate de revealed_at)
-        # para saber si esta misma respuesta, aceptada ahora, se habría
-        # rechazado injustamente con el código anterior.
-        old_style_deadline = session_question.started_at + timezone.timedelta(
-            seconds=session_question.duration_seconds + session_question.grace_seconds
-        )
-        would_have_been_rejected_by_old_check = timezone.now() > old_style_deadline
-
-        return Response(
-            {'submitted': True, 'would_have_been_rejected_by_old_check': would_have_been_rejected_by_old_check},
-            status=status.HTTP_201_CREATED,
-        )
+        return Response({'submitted': True}, status=status.HTTP_201_CREATED)
 
 
 class StudentProfileView(views.APIView):

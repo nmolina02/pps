@@ -1,10 +1,22 @@
-"""Prueba de estrés del flujo join -> poll -> reveal de una sesión en vivo.
+"""Prueba de estrés del flujo join -> estado en vivo -> reveal de una sesión.
 
 Replica el escenario que hizo caer el backend el 2026-08-12: N alumnos
-haciendo join a una sesión y sondeando /state/ en loop (cada 2s, igual que
-PlayPage.tsx) mientras un único docente arranca y revela preguntas de un
-cuestionario ya existente, sondeando /host-state/ cada 1s (igual que
-HostDashboardPage.tsx).
+uniéndose a una sesión y recibiendo el estado en vivo (pregunta activa,
+countdown, revelado) mientras un único docente arranca y revela preguntas de
+un cuestionario ya existente.
+
+Soporta dos modos, elegidos con LOCUST_MODE:
+  - "poll" (default): el mecanismo viejo -- /state/ cada 2s por alumno,
+    /host-state/ cada 1s por el docente (igual que el frontend antes de la
+    migración a SSE).
+  - "sse": el mecanismo nuevo -- una sola conexión persistente por usuario a
+    /state/stream/ (alumno) o /host-state/stream/ (docente), con el servidor
+    empujando el estado. Reconecta con backoff si se corta, igual que el
+    cliente real (EventSource nativo del lado alumno, host.ts a mano del
+    lado docente).
+
+Correr los dos modos contra el mismo ambiente (mismo QUIZ_ID, misma cantidad
+de --users) da un antes/después real de la migración.
 
 Setup previo:
   1. El cuestionario (QUIZ_ID) tiene que existir de antes y pertenecer al
@@ -19,7 +31,7 @@ Uso:
     pip install -r loadtest/requirements.txt
 
     DOCENTE_USERNAME=tu_usuario DOCENTE_PASSWORD=tu_clave QUIZ_ID=10 \
-    LOCUST_LEGAJO_PREFIX=LOAD LOCUST_LEGAJO_COUNT=60 \
+    LOCUST_LEGAJO_PREFIX=LOAD LOCUST_LEGAJO_COUNT=60 LOCUST_MODE=sse \
     locust -f loadtest/locustfile.py --host https://tu-backend-de-staging.onrender.com
 
 Después abrís http://localhost:8089, elegís cantidad de usuarios (alumnos)
@@ -32,6 +44,7 @@ DocenteUser conduce toda la sesión (fixed_count=1) sin importar cuántos
 """
 
 import itertools
+import json
 import os
 import random
 import time
@@ -43,12 +56,21 @@ DOCENTE_USERNAME = os.environ["DOCENTE_USERNAME"]
 DOCENTE_PASSWORD = os.environ["DOCENTE_PASSWORD"]
 QUIZ_ID = int(os.environ["QUIZ_ID"])
 
-# Diagnóstico temporal: cuenta cuántas respuestas se aceptaron, cuántas se
-# rechazaron por deadline_passed, y de las aceptadas, cuántas se habrían
-# rechazado injustamente con el chequeo viejo (timezone.now() en vez de
-# arrived_at) -- ver el campo would_have_been_rejected_by_old_check que
-# devuelve SubmitAnswerView mientras dure esta medición.
-answer_diagnostics = {"accepted": 0, "saved_by_fix": 0, "rejected_deadline_passed": 0, "other_errors": 0}
+LOCUST_MODE = os.environ.get("LOCUST_MODE", "poll")  # "poll" (viejo) o "sse" (streams nuevos)
+if LOCUST_MODE not in ("poll", "sse"):
+    raise RuntimeError(f"LOCUST_MODE inválido: {LOCUST_MODE!r} -- usar 'poll' o 'sse'")
+
+# Resumen de qué pasó con los intentos de responder -- separado de las
+# estadísticas normales de Locust porque acá interesa distinguir
+# "rechazada por deadline" (posiblemente legítimo) de otros errores
+# (throttling, 5xx) en vez de un solo número de fallos.
+answer_diagnostics = {"accepted": 0, "rejected_deadline_passed": 0, "other_errors": 0}
+
+# Cuántas veces se tuvo que reconectar cada tipo de stream SSE -- alto acá es
+# señal de conexiones cortándose bajo carga (timeout de gunicorn, recycle de
+# worker por --max-requests, etc.), algo que en modo "poll" no existe como
+# concepto porque cada poll es una request nueva de por sí.
+stream_diagnostics = {"student_reconnects": 0, "host_reconnects": 0}
 
 LEGAJO_COUNT = int(os.environ.get("LOCUST_LEGAJO_COUNT", "60"))
 if os.environ.get("LOCUST_LEGAJO_START"):
@@ -75,13 +97,84 @@ session_state = {"code": None}
 _legajo_pool = itertools.cycle(LEGAJOS)
 
 
+def _iter_sse_events(response):
+    """Parte el body de una respuesta streaming en eventos SSE completos
+    (separados por línea en blanco), mismo criterio de buffering que
+    frontend/src/api/host.ts."""
+    buffer = ""
+    for chunk in response.iter_content(chunk_size=1024):
+        if not chunk:
+            continue
+        buffer += chunk.decode("utf-8")
+        while "\n\n" in buffer:
+            raw_event, buffer = buffer.split("\n\n", 1)
+            if raw_event:
+                yield raw_event
+
+
+def _parse_sse_event(raw_event):
+    event_type = "message"
+    data = ""
+    for line in raw_event.split("\n"):
+        if line.startswith("event:"):
+            event_type = line[len("event:"):].strip()
+        elif line.startswith("data:"):
+            data += line[len("data:"):].strip()
+    return event_type, data
+
+
+def _consume_stream(user, path, params, name, diagnostics_key):
+    """Genérico para alumno y docente: abre el stream, lo mantiene leído
+    (descartando o guardando el payload según on_event) hasta que
+    user.stop_streaming se ponga en True, reconectando con backoff si el
+    servidor corta la conexión de forma inesperada (session_ended no cuenta
+    como corte inesperado -- ahí no se reconecta, mismo criterio que
+    host.ts/EventSource nativo)."""
+    attempt = 0
+    while not user.stop_streaming:
+        try:
+            with user.client.get(
+                path,
+                params=params,
+                name=name,
+                stream=True,
+                catch_response=True,
+                timeout=(10, None),
+            ) as resp:
+                if resp.status_code != 200:
+                    resp.failure(f"stream status {resp.status_code}")
+                    raise RuntimeError(f"stream failed to open: {resp.status_code}")
+                resp.success()
+                attempt = 0
+                for raw_event in _iter_sse_events(resp):
+                    if user.stop_streaming:
+                        break
+                    event_type, data = _parse_sse_event(raw_event)
+                    if event_type == "session_ended":
+                        user.stop_streaming = True
+                        break
+                    if data:
+                        user.current_state = json.loads(data)
+        except Exception:
+            pass  # se reintenta abajo, salvo que stop_streaming ya esté en True
+
+        if user.stop_streaming:
+            return
+        stream_diagnostics[diagnostics_key] += 1
+        delay = min(1 * 2 ** attempt, 8) + random.uniform(0, 0.5)
+        attempt += 1
+        gevent.sleep(delay)
+
+
 class DocenteUser(HttpUser):
     """Una sola instancia (fixed_count=1) conduciendo la sesión: crea el
-    quiz en vivo, sondea host-state cada 1s y va arrancando/revelando
-    preguntas en un greenlet aparte, igual que HostDashboardPage.tsx."""
+    quiz en vivo y va arrancando/revelando preguntas en un greenlet aparte.
+    En modo "poll" además sondea host-state cada 1s (igual que
+    HostDashboardPage.tsx antes de SSE); en modo "sse" mantiene una única
+    conexión persistente a host-state/stream/."""
 
     fixed_count = 1
-    wait_time = between(1, 1)  # HOST_POLL_INTERVAL_MS del frontend
+    wait_time = between(1, 1) if LOCUST_MODE == "poll" else between(5, 5)
 
     def on_start(self):
         resp = self.client.post(
@@ -108,9 +201,27 @@ class DocenteUser(HttpUser):
         if not self.questions:
             raise RuntimeError(f"El quiz {QUIZ_ID} no tiene preguntas cargadas.")
 
+        self.stop_streaming = False
+        self.current_state = None
+        self._stream_greenlet = None
+        if LOCUST_MODE == "sse":
+            self._stream_greenlet = gevent.spawn(
+                _consume_stream,
+                self,
+                f"/api/v1/sessions/{self.code}/host-state/stream/",
+                None,
+                "/sessions/[code]/host-state/stream/",
+                "host_reconnects",
+            )
+
         # Corre aparte del loop normal de @task para no competir por turno
         # con el sondeo de host-state.
         gevent.spawn(self._drive_questions)
+
+    def on_stop(self):
+        self.stop_streaming = True
+        if self._stream_greenlet:
+            self._stream_greenlet.kill(block=False)
 
     def _drive_questions(self):
         for question in self.questions:
@@ -127,18 +238,21 @@ class DocenteUser(HttpUser):
             gevent.sleep(BETWEEN_QUESTIONS_SECONDS)
 
         self.client.post(f"/api/v1/sessions/{self.code}/finish/", name="/sessions/[code]/finish/")
+        self.stop_streaming = True
 
     @task
     def poll_host_state(self):
-        if self.code:
-            self.client.get(f"/api/v1/sessions/{self.code}/host-state/", name="/sessions/[code]/host-state/")
+        if LOCUST_MODE == "sse" or not self.code:
+            return
+        self.client.get(f"/api/v1/sessions/{self.code}/host-state/", name="/sessions/[code]/host-state/")
 
 
 class AlumnoUser(HttpUser):
-    """Un alumno: join una sola vez, después sondea /state/ cada 2s (mismo
-    intervalo que PlayPage.tsx) y contesta la pregunta activa una vez."""
+    """Un alumno: join una sola vez, después recibe el estado de la sesión
+    (por polling cada 2s o por stream SSE, según LOCUST_MODE) y contesta la
+    pregunta activa una vez."""
 
-    wait_time = between(2, 2)  # POLL_INTERVAL_MS del frontend
+    wait_time = between(2, 2) if LOCUST_MODE == "poll" else between(0.5, 0.5)
 
     def on_start(self):
         for _ in range(300):  # espera hasta 5 min a que el docente arranque la sesión
@@ -172,17 +286,26 @@ class AlumnoUser(HttpUser):
         resp.raise_for_status()
         self.participant_id = resp.json()["id"]
 
-    @task
-    def poll_and_answer(self):
-        resp = self.client.get(
-            f"/api/v1/sessions/{self.code}/state/",
-            params={"participant_id": self.participant_id},
-            name="/sessions/[code]/state/",
-        )
-        if resp.status_code != 200:
-            return
+        self.stop_streaming = False
+        self.current_state = None
+        self._stream_greenlet = None
+        if LOCUST_MODE == "sse":
+            self._stream_greenlet = gevent.spawn(
+                _consume_stream,
+                self,
+                f"/api/v1/sessions/{self.code}/state/stream/",
+                {"participant_id": self.participant_id},
+                "/sessions/[code]/state/stream/",
+                "student_reconnects",
+            )
 
-        current = resp.json().get("current_question")
+    def on_stop(self):
+        self.stop_streaming = True
+        if self._stream_greenlet:
+            self._stream_greenlet.kill(block=False)
+
+    def _maybe_answer(self):
+        current = (self.current_state or {}).get("current_question")
         if not current or current["order"] in self.answered_orders:
             return
         if not current["accepts_answers"] or current.get("has_answered"):
@@ -206,24 +329,48 @@ class AlumnoUser(HttpUser):
 
         if resp.status_code == 201:
             answer_diagnostics["accepted"] += 1
-            if resp.json().get("would_have_been_rejected_by_old_check"):
-                answer_diagnostics["saved_by_fix"] += 1
         elif resp.status_code == 403:
             answer_diagnostics["rejected_deadline_passed"] += 1
         elif resp.status_code >= 400:
             answer_diagnostics["other_errors"] += 1
+
+    @task
+    def poll_and_answer(self):
+        if LOCUST_MODE == "sse":
+            # el estado ya lo trae al día el greenlet del stream -- acá solo
+            # se decide, con cadencia liviana y sin red, si ya es momento de
+            # contestar (el servidor no reemite si no cambió nada).
+            self._maybe_answer()
+            return
+
+        resp = self.client.get(
+            f"/api/v1/sessions/{self.code}/state/",
+            params={"participant_id": self.participant_id},
+            name="/sessions/[code]/state/",
+        )
+        if resp.status_code != 200:
+            return
+        self.current_state = resp.json()
+        self._maybe_answer()
 
 
 @events.quitting.add_listener
 def _report_answer_diagnostics(environment, **kwargs):
     d = answer_diagnostics
     total = d["accepted"] + d["rejected_deadline_passed"] + d["other_errors"]
-    print(
-        "\n=== Diagnóstico de respuestas (todas mandadas dentro del límite visible) ===\n"
+    report = (
+        "\n=== Resumen de intentos de responder ===\n"
+        f"  Modo:                           {LOCUST_MODE}\n"
         f"  Total intentos:                 {total}\n"
         f"  Aceptadas:                      {d['accepted']}\n"
-        f"    -> salvadas por el fix        {d['saved_by_fix']} "
-        "(se habrían rechazado con el chequeo viejo, ahora se aceptaron)\n"
         f"  Rechazadas (deadline_passed):   {d['rejected_deadline_passed']}\n"
         f"  Otros errores (429/500/etc.):   {d['other_errors']}\n"
     )
+    if LOCUST_MODE == "sse":
+        s = stream_diagnostics
+        report += (
+            "=== Reconexiones de stream (SSE) ===\n"
+            f"  Alumno (state/stream/):         {s['student_reconnects']}\n"
+            f"  Docente (host-state/stream/):   {s['host_reconnects']}\n"
+        )
+    print(report)

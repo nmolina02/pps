@@ -11,3 +11,12 @@ class SessionPollThrottle(AnonRateThrottle):
     eso sin sacarle la protección del todo."""
 
     scope = 'session_poll'
+
+
+class SessionActionThrottle(AnonRateThrottle):
+    """Igual razonamiento que SessionPollThrottle, para /join/ y /answer/ --
+    son acciones puntuales (no polling continuo), pero comparten el balde
+    'anon' genérico con el resto de la API, y en una ráfaga de 40 alumnos
+    uniéndose o contestando casi junto pueden agotarlo igual."""
+
+    scope = 'session_action'

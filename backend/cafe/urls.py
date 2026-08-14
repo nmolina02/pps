@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import streaming, views
 
 urlpatterns = [
     path('topics/', views.TopicListView.as_view(), name='topic-list'),
@@ -11,6 +11,19 @@ urlpatterns = [
     path('sessions/<str:code>/cancel/', views.CancelSessionView.as_view(), name='session-cancel'),
     path('sessions/<str:code>/state/', views.SessionStudentStateView.as_view(), name='session-student-state'),
     path('sessions/<str:code>/host-state/', views.SessionHostStateView.as_view(), name='session-host-state'),
+    # Streaming (SSE) -- reemplazan el polling de arriba del lado del
+    # frontend, pero los endpoints de polling quedan intactos como red de
+    # rescate mientras se valida esto en una clase real.
+    path(
+        'sessions/<str:code>/state/stream/',
+        streaming.SessionStudentStateStreamView.as_view(),
+        name='session-student-state-stream',
+    ),
+    path(
+        'sessions/<str:code>/host-state/stream/',
+        streaming.SessionHostStateStreamView.as_view(),
+        name='session-host-state-stream',
+    ),
     path('sessions/<str:code>/questions/', views.SessionQuestionListView.as_view(), name='session-question-list'),
     path(
         'sessions/<str:code>/questions/<int:order>/start/',

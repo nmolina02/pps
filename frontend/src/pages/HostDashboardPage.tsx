@@ -4,17 +4,15 @@ import { useDocente } from '../context/DocenteContext';
 import {
   cancelSession,
   finishSession,
-  getHostState,
   getSessionQuestions,
   getSessionQuestionsProgress,
   revealQuestion,
   startQuestion,
+  streamHostState,
 } from '../api/host';
 import type { SessionHostState, SessionQuestionProgress } from '../api/types';
 import { ZoomableImage } from '../components/ZoomableImage';
 import { createImageCache, hydrateHostQuestion } from '../utils/imageCache';
-
-const HOST_POLL_INTERVAL_MS = 1000;
 
 export function HostDashboardPage() {
   const { code = '' } = useParams<{ code: string }>();
@@ -26,9 +24,10 @@ export function HostDashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCorrect, setShowCorrect] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const imageCacheRef = useRef(createImageCache());
-  const knownQuestionIdRef = useRef<number | null>(null);
   const hasFullProgressRef = useRef(false);
+  const sessionFinishedRef = useRef(false);
 
   const refreshProgress = useCallback(() => {
     if (!docente) return;
@@ -62,27 +61,26 @@ export function HostDashboardPage() {
 
   useEffect(() => {
     if (!docente) return;
-    let cancelled = false;
-    async function poll() {
-      try {
-        const data = await getHostState(docente!.token, code, knownQuestionIdRef.current);
-        if (cancelled) return;
+    const stream = streamHostState(
+      docente.token,
+      code,
+      (data) => {
+        if (data.session.status === 'finished') sessionFinishedRef.current = true;
         if (data.current_question) {
           data.current_question = hydrateHostQuestion(data.current_question, imageCacheRef.current);
-          knownQuestionIdRef.current = data.current_question.question.id;
-        } else {
-          knownQuestionIdRef.current = null;
         }
         setState(data);
-      } catch {
-        // se reintenta en el próximo ciclo
-      }
-    }
-    poll();
-    const id = setInterval(poll, HOST_POLL_INTERVAL_MS);
+      },
+      () => {
+        // si ya vimos session.status === 'finished' por un mensaje normal,
+        // el panel de "sesión finalizada" ya se está mostrando -- esto solo
+        // importa cuando la sesión desaparece sin haber terminado.
+        if (!sessionFinishedRef.current) setError('La sesión ya no existe.');
+      },
+      (connected) => setReconnecting(!connected),
+    );
     return () => {
-      cancelled = true;
-      clearInterval(id);
+      stream.close();
     };
   }, [docente, code]);
 
@@ -140,6 +138,11 @@ export function HostDashboardPage() {
 
   return (
     <div className="container" style={{ padding: '32px 24px 96px', maxWidth: 880 }}>
+      {reconnecting && (
+        <p className="mono cursor" style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+          reconectando…
+        </p>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <p className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>

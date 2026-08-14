@@ -134,9 +134,13 @@ no requiere tocar el frontend para agregar un caso nuevo.
   details } }`.
 - **Persistencia**: PostgreSQL gestionado por Neon (serverless), con conexión persistente
   (`CONN_MAX_AGE`) desde el backend para minimizar la latencia del polling de las sesiones en vivo.
-- **Comunicación en vivo**: sin WebSockets — el estado de la sesión se sincroniza por *polling* HTTP
-  (cada 1-2 segundos), lo que simplifica la infraestructura de despliegue a costa de una latencia
-  acotada pero perceptible, asumible para el tamaño de curso objetivo.
+- **Comunicación en vivo**: el estado de la sesión se empuja por *Server-Sent Events* (HTTP, sin
+  WebSockets ni Redis) — el servidor recalcula y manda el estado apenas cambia, en vez de que cada
+  cliente lo pida a repetición. Las acciones (unirse, responder, iniciar/revelar pregunta) siguen siendo
+  los mismos endpoints REST de siempre; solo cambió cómo se entera el cliente de que algo cambió. Corre
+  sobre ASGI (`gunicorn` con worker `uvicorn`) en vez de WSGI puro, mezclando vistas async (los dos
+  streams) con el resto de la API, que sigue siendo síncrona sin cambios. Los endpoints de polling
+  anteriores (`/state/`, `/host-state/`) se mantienen intactos como red de rescate.
 
 ## Stack tecnológico
 
@@ -238,8 +242,8 @@ Tres capas, cada una con su propósito:
 
 | Capa | Herramienta | Qué cubre |
 |---|---|---|
-| Unit + integración (backend) | Django `TestCase` / DRF `APITestCase` (`backend/cafe/tests/`) | Reglas de puntaje (`Question.score_ratio` en sus 4 tipos), normalización de comisión, validación de serializers, y el ciclo completo de cada endpoint: casos (alta/edición/borrado con permiso de autor), cuestionarios (alta, edición, compartido entre docentes), compartido/descompartido por comisión (incluido el permiso extendido a docentes no dueños), una sesión en vivo de punta a punta (arrancar → unirse → responder → revelar → finalizar → snapshot de `QuizAttempt`), perfil/historial/leaderboard de alumno, y la importación de alumnos por CSV desde el admin. 147 tests. |
-| Unit (frontend) | Vitest + React Testing Library (`frontend/src/**/*.test.{ts,tsx}`) | Lógica pura con más ramificaciones: el motor de inferencia de modelos visuales (`sniffShape` + los ~66 adaptadores del registro contra sus propios ejemplos), el hook de reproducción paso a paso (`usePlayback`) y su integración con `PlaybackControls`, el parseo/normalización de comisiones, y el cliente HTTP (`apiFetch`/`ApiError`). 171 tests. |
+| Unit + integración (backend) | Django `TestCase` / DRF `APITestCase` (`backend/cafe/tests/`) | Reglas de puntaje (`Question.score_ratio` en sus 4 tipos), normalización de comisión, validación de serializers, y el ciclo completo de cada endpoint: casos (alta/edición/borrado con permiso de autor), cuestionarios (alta, edición, compartido entre docentes), compartido/descompartido por comisión (incluido el permiso extendido a docentes no dueños), una sesión en vivo de punta a punta (arrancar → unirse → responder → revelar → finalizar → snapshot de `QuizAttempt`), perfil/historial/leaderboard de alumno, la importación de alumnos por CSV desde el admin, el deadline de respuestas por hora de llegada bajo carga, y los streams de SSE (dedup, fin de sesión, auth) con `unittest.IsolatedAsyncioTestCase`/`TransactionTestCase` donde hace falta cruzar threads de verdad. 184 tests. |
+| Unit (frontend) | Vitest + React Testing Library (`frontend/src/**/*.test.{ts,tsx}`) | Lógica pura con más ramificaciones: el motor de inferencia de modelos visuales (`sniffShape` + los ~66 adaptadores del registro contra sus propios ejemplos), el hook de reproducción paso a paso (`usePlayback`) y su integración con `PlaybackControls`, el parseo/normalización de comisiones, el cliente HTTP (`apiFetch`/`ApiError`), el reintento de respuestas y el parser de SSE a mano del stream del docente. 182 tests. |
 | End-to-end | Playwright (`frontend/e2e/`) | Los dos flujos de browser más nuevos y con más piezas moviéndose: un docente comparte/descomparte un cuestionario con una comisión desde el panel, y un alumno lo ve en su lista de repaso y revisa las respuestas correctas. Corre contra un backend y frontend reales, levantados automáticamente por Playwright sobre una base sqlite descartable (`db.e2e.sqlite3`, sembrada por `manage.py seed_e2e_data`) — no toca la base de desarrollo. |
 
 Comandos:

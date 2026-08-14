@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from './client';
+import { API_BASE_URL, apiFetch, ApiError } from './client';
 import type { Participant, SessionStudentState } from './types';
 
 export function joinSession(code: string, legajo: string): Promise<Participant> {
@@ -18,7 +18,23 @@ export function getStudentSessionState(
   return apiFetch<SessionStudentState>(`/sessions/${encodeURIComponent(code)}/state/?${params.toString()}`);
 }
 
+/** Empuje del servidor en vez de sondeo -- reemplaza el loop de polling de
+ * getStudentSessionState. Sin auth (como el polling que reemplaza), así que
+ * un EventSource nativo alcanza: reconexión automática gratis del browser,
+ * sin código propio. */
+export function streamStudentSessionState(code: string, participantId: number): EventSource {
+  const params = new URLSearchParams({ participant_id: String(participantId) });
+  return new EventSource(
+    `${API_BASE_URL}/sessions/${encodeURIComponent(code)}/state/stream/?${params.toString()}`,
+  );
+}
+
 const MAX_ANSWER_ATTEMPTS = 5;
+// Muchos alumnos tienden a contestar justo cuando se acaba el tiempo --
+// este jitter desparrama esos envíos en una ventana chica en vez de que
+// lleguen todos en el mismo instante. Cabe cómodo dentro del margen de
+// grace_seconds de la pregunta, así que no le come tiempo real al alumno.
+const INITIAL_SUBMIT_JITTER_MAX_MS = 2500;
 
 /** Cuánto esperar antes del próximo intento: si el servidor mandó
  * Retry-After (429) lo respeta (+ jitter para no resincronizar a todo el
@@ -39,6 +55,8 @@ export async function submitAnswer(
   order: number,
   payload: { participant_id: number; option_ids?: number[]; free_text?: string },
 ): Promise<{ submitted: boolean }> {
+  await new Promise((resolve) => setTimeout(resolve, Math.random() * INITIAL_SUBMIT_JITTER_MAX_MS));
+
   for (let attempt = 0; ; attempt++) {
     try {
       return await apiFetch<{ submitted: boolean }>(
