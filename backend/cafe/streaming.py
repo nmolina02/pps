@@ -21,7 +21,7 @@ from django.views import View
 from .authentication import authenticate_token
 from .views import _build_host_payload, _build_student_payload, _session_host_id
 
-TICK_SECONDS = 2
+TICK_SECONDS = 3
 SESSION_ENDED_EVENT = 'event: session_ended\ndata: {}\n\n'
 
 
