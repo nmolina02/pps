@@ -2,11 +2,14 @@
 unirse, contestar, revelar y finalizar — incluyendo el snapshot QuizAttempt
 que sobrevive a la purga de Answer al finalizar."""
 from datetime import timedelta
+from unittest import mock
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from cafe.models import Answer, Participant, QuizAttempt, QuizSession, SessionQuestion
 from cafe.tests.base import ApiTestCase
+from cafe.throttling import SessionPollThrottle
 
 
 class QuizStartViewTests(ApiTestCase):
@@ -330,3 +333,49 @@ class SessionQuestionListViewTests(ApiTestCase):
         self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/reveal/')
         response = self.client.get(f'/api/v1/sessions/{self.session_code}/questions/', {'progress_only': '1'})
         self.assertIsNotNone(response.data[0]['revealed_at'])
+
+
+class SessionPollThrottleTests(ApiTestCase):
+    """/state/ usa su propio scope de throttle (session_poll) en vez del
+    'anon' genérico compartido por toda la API -- antes del fix, un aula
+    entera sondeando /state/ desde la misma IP (como pasa detrás del proxy
+    de Render) agotaba el balde de 120/min compartido con el resto de la
+    API. Bajamos la tasa a un número chico acá para no tener que mandar
+    miles de requests para probarlo."""
+
+    def setUp(self):
+        self.host = self.make_teacher('host')
+        self.quiz, self.question, self.correct, self.wrong = self.make_quiz_with_question(self.host)
+        self.make_student(legajo='111', full_name='Ada')
+        self.auth(self.host)
+        start_response = self.client.post(f'/api/v1/docente/quizzes/{self.quiz.id}/start/')
+        self.session_code = start_response.data['code']
+        self.client.force_authenticate(user=None)
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_state_polling_is_throttled_once_its_own_scope_is_exhausted(self):
+        # DRF congela THROTTLE_RATES como atributo de clase al importar el
+        # módulo -- @override_settings no lo vuelve a leer, así que para
+        # simular una tasa baja en el test hay que parchear la clase directo.
+        with mock.patch.object(SessionPollThrottle, 'THROTTLE_RATES', {'session_poll': '2/minute'}):
+            first = self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+            second = self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+            third = self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 429)
+
+    def test_exhausting_the_session_poll_scope_does_not_throttle_the_rest_of_the_api(self):
+        with mock.patch.object(SessionPollThrottle, 'THROTTLE_RATES', {'session_poll': '2/minute'}):
+            self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+            self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+            exhausted = self.client.get(f'/api/v1/sessions/{self.session_code}/state/')
+            self.assertEqual(exhausted.status_code, 429)
+
+        # /topics/ usa el scope 'anon' genérico (el mock de arriba solo
+        # afecta a session_poll) -- antes del fix compartían un solo balde.
+        topics_response = self.client.get('/api/v1/topics/')
+        self.assertEqual(topics_response.status_code, 200)

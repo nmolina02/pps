@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from .models import Answer, Case, Participant, Question, QuestionOption, Quiz, QuizAttempt, QuizSession, SessionQuestion, Student, TeacherProfile, Topic
 from .permissions import IsCaseAuthor, IsSessionHost
+from .throttling import SessionPollThrottle
 from .serializers import (
     CaseDetailSerializer,
     CaseListSerializer,
@@ -521,6 +522,8 @@ class SessionQuestionListView(views.APIView):
 
 
 class SessionStudentStateView(views.APIView):
+    throttle_classes = [SessionPollThrottle]
+
     def get(self, request, code):
         session = get_object_or_404(QuizSession, code=code)
 

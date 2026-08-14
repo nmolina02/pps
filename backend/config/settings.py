@@ -201,5 +201,9 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '120/minute',
         'user': '300/minute',
+        # /state/ se sondea cada 1-2s por alumno sin login -- todos comparten
+        # la misma IP detrás del proxy de Render, así que necesita un techo
+        # propio bien por encima del genérico de 'anon' (ver cafe/throttling.py).
+        'session_poll': '3000/minute',
     },
 }
