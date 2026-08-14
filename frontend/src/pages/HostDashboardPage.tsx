@@ -25,6 +25,7 @@ export function HostDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCorrect, setShowCorrect] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [displaySeconds, setDisplaySeconds] = useState<number | null>(null);
   const imageCacheRef = useRef(createImageCache());
   const hasFullProgressRef = useRef(false);
   const sessionFinishedRef = useRef(false);
@@ -70,6 +71,7 @@ export function HostDashboardPage() {
           data.current_question = hydrateHostQuestion(data.current_question, imageCacheRef.current);
         }
         setState(data);
+        setDisplaySeconds(data.current_question?.time_remaining_seconds ?? null);
       },
       () => {
         // si ya vimos session.status === 'finished' por un mensaje normal,
@@ -83,6 +85,16 @@ export function HostDashboardPage() {
       stream.close();
     };
   }, [docente, code]);
+
+  // el stream solo re-evalúa cada TICK_SECONDS (ver cafe/streaming.py) --
+  // sin esto el número salta de a varias unidades en vez de bajar de a 1,
+  // igual que ya hace PlayPage.tsx del lado del alumno.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setDisplaySeconds((s) => (s !== null && s > 0 ? s - 1 : s));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   if (!docente) {
     return (
@@ -188,7 +200,7 @@ export function HostDashboardPage() {
                 </p>
                 {!current.revealed && (
                   <span className="mono" style={{ color: 'var(--accent)' }}>
-                    {current.time_remaining_seconds ?? '—'}s
+                    {displaySeconds ?? '—'}s
                   </span>
                 )}
               </div>
