@@ -335,6 +335,67 @@ class SessionQuestionListViewTests(ApiTestCase):
         self.assertIsNotNone(response.data[0]['revealed_at'])
 
 
+class RequestArrivalTimeDeadlineTests(ApiTestCase):
+    """SubmitAnswerView usa request.arrived_at (seteado por
+    RequestArrivalTimeMiddleware) para decidir el deadline, no el momento en
+    que efectivamente se procesa -- así una respuesta que quedó en cola por
+    congestión del servidor pero que el alumno mandó a tiempo no se rechaza
+    injustamente. Y revelar corta la ventana al instante, sin importar
+    cuánto margen nominal quede."""
+
+    def setUp(self):
+        self.host = self.make_teacher('host')
+        self.quiz, self.question, self.correct, self.wrong = self.make_quiz_with_question(self.host)
+        self.make_student(legajo='111', full_name='Ada')
+        self.auth(self.host)
+        start_response = self.client.post(f'/api/v1/docente/quizzes/{self.quiz.id}/start/')
+        self.session_code = start_response.data['code']
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/start/')
+        join_response = self.client.post(f'/api/v1/sessions/{self.session_code}/join/', {'legajo': '111'})
+        self.participant_id = join_response.data['id']
+        self.session_question = SessionQuestion.objects.get(session__code=self.session_code, question=self.question)
+
+    def test_an_answer_that_arrived_on_time_is_accepted_even_if_processed_late(self):
+        # empujamos started_at al pasado para que "ahora" (el momento real en
+        # que corre este assert) ya haya superado el deadline nominal
+        # (20+2s) -- pero la request "llegó" bien a tiempo, a los 5s.
+        self.session_question.started_at = timezone.now() - timedelta(seconds=30)
+        self.session_question.save(update_fields=['started_at'])
+        arrived_at = self.session_question.started_at + timedelta(seconds=5)
+
+        with mock.patch('cafe.middleware.timezone.now', return_value=arrived_at):
+            response = self.client.post(
+                f'/api/v1/sessions/{self.session_code}/questions/1/answer/',
+                {'participant_id': self.participant_id, 'option_ids': [self.correct.id]},
+                format='json',
+            )
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_a_request_that_truly_arrived_late_is_rejected(self):
+        self.session_question.started_at = timezone.now() - timedelta(seconds=30)
+        self.session_question.save(update_fields=['started_at'])
+
+        response = self.client.post(
+            f'/api/v1/sessions/{self.session_code}/questions/1/answer/',
+            {'participant_id': self.participant_id, 'option_ids': [self.correct.id]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data['error']['code'], 'deadline_passed')
+
+    def test_revealing_blocks_new_answers_even_with_time_nominally_left(self):
+        # started_at recién seteado por el /start/ del setUp -- todavía
+        # quedan de sobra de los 20s nominales de duration_seconds.
+        self.client.post(f'/api/v1/sessions/{self.session_code}/questions/1/reveal/')
+        response = self.client.post(
+            f'/api/v1/sessions/{self.session_code}/questions/1/answer/',
+            {'participant_id': self.participant_id, 'option_ids': [self.correct.id]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data['error']['code'], 'deadline_passed')
+
+
 class SessionPollThrottleTests(ApiTestCase):
     """/state/ usa su propio scope de throttle (session_poll) en vez del
     'anon' genérico compartido por toda la API -- antes del fix, un aula

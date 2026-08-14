@@ -72,6 +72,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Lo más temprano posible en la cadena, para que el timestamp de
+    # "llegada" no incluya el tiempo que tarda el resto del pipeline.
+    'cafe.middleware.RequestArrivalTimeMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

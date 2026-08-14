@@ -1,9 +1,12 @@
 """Tests unitarios de la lógica de negocio en models.py — sin pasar por la API."""
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
-from cafe.models import Question, QuestionOption, QuizAttempt, Student
+from cafe.models import Question, QuestionOption, Quiz, QuizAttempt, QuizSession, SessionQuestion, Student
 
 User = get_user_model()
 
@@ -153,3 +156,44 @@ class QuizAttemptUniquenessTests(TestCase):
         self.assertEqual(QuizAttempt.objects.filter(student=student, quiz=quiz).count(), 1)
         attempt = QuizAttempt.objects.get(student=student, quiz=quiz)
         self.assertEqual(attempt.total_score, 250)
+
+
+class SessionQuestionAcceptsAnswersAtTests(TestCase):
+    """accepts_answers_at recibe explícitamente el momento a evaluar (en la
+    vista real, request.arrived_at) en vez de mirar timezone.now() -- así una
+    respuesta que llegó a tiempo pero se procesó tarde por congestión del
+    servidor no se rechaza injustamente."""
+
+    def setUp(self):
+        host = User.objects.create_user(username='host', password='x')
+        quiz = Quiz.objects.create(host=host, title='Quiz')
+        self.question = Question.objects.create(
+            quiz=quiz, order=1, text='¿?', question_type=Question.Type.SINGLE_CHOICE,
+            justification='porque sí', duration_seconds=20, grace_seconds=2,
+        )
+        self.session = QuizSession.objects.create(code='ABC123', host=host)
+        self.session_question = SessionQuestion.objects.create(session=self.session, question=self.question)
+
+    def test_not_started_never_accepts(self):
+        self.assertFalse(self.session_question.accepts_answers_at(timezone.now()))
+
+    def test_accepts_within_duration_plus_grace(self):
+        self.session_question.started_at = timezone.now() - timedelta(seconds=21)
+        self.assertTrue(self.session_question.accepts_answers_at(self.session_question.started_at + timedelta(seconds=21)))
+
+    def test_rejects_past_duration_plus_grace(self):
+        self.session_question.started_at = timezone.now() - timedelta(seconds=30)
+        self.assertFalse(self.session_question.accepts_answers_at(self.session_question.started_at + timedelta(seconds=23)))
+
+    def test_a_late_arriving_moment_that_was_actually_on_time_is_still_accepted(self):
+        """Simula el caso real: el alumno mandó la respuesta a los 19s (a
+        tiempo), pero el servidor recién la procesa a los 25s por congestión
+        -- lo que importa es el momento de llegada (19s), no el de proceso."""
+        self.session_question.started_at = timezone.now() - timedelta(seconds=25)
+        arrived_at = self.session_question.started_at + timedelta(seconds=19)
+        self.assertTrue(self.session_question.accepts_answers_at(arrived_at))
+
+    def test_revealing_closes_the_window_immediately_regardless_of_time_left(self):
+        self.session_question.started_at = timezone.now()
+        self.session_question.revealed_at = timezone.now()
+        self.assertFalse(self.session_question.accepts_answers_at(timezone.now()))

@@ -235,12 +235,20 @@ class SessionQuestion(models.Model):
 
     @property
     def accepts_answers(self):
-        if self.started_at is None:
+        return self.accepts_answers_at(timezone.now())
+
+    def accepts_answers_at(self, moment):
+        """`moment` normalmente es request.arrived_at (cuándo llegó la
+        request), no cuándo se la termina de procesar -- así una respuesta
+        que quedó en cola por congestión del servidor pero que el alumno
+        mandó a tiempo se sigue aceptando. Revelar corta la ventana al
+        instante, sin importar cuánto margen quede todavía."""
+        if self.started_at is None or self.revealed_at is not None:
             return False
         deadline = self.started_at + timezone.timedelta(
             seconds=self.question.duration_seconds + self.question.grace_seconds
         )
-        return timezone.now() <= deadline
+        return moment <= deadline
 
 
 class Student(models.Model):

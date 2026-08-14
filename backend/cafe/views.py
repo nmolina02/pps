@@ -597,7 +597,11 @@ class SubmitAnswerView(views.APIView):
 
         participant = get_object_or_404(Participant, id=data['participant_id'], session=session)
 
-        if not session_question.accepts_answers:
+        # request.arrived_at (seteado por RequestArrivalTimeMiddleware) es
+        # cuándo llegó la request, no cuándo se la termina de procesar --
+        # bajo carga, esas dos cosas pueden diferir varios segundos.
+        arrived_at = getattr(request, 'arrived_at', timezone.now())
+        if not session_question.accepts_answers_at(arrived_at):
             return Response(
                 {
                     'error': {
@@ -637,7 +641,7 @@ class SubmitAnswerView(views.APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        elapsed_seconds = (timezone.now() - session_question.started_at).total_seconds()
+        elapsed_seconds = (arrived_at - session_question.started_at).total_seconds()
         ratio = question.score_ratio(option_ids=option_ids, free_text=data['free_text'])
         speed_factor = _speed_factor(elapsed_seconds, session_question.duration_seconds)
         earned_points = round(session_question.points * ratio * speed_factor)

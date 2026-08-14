@@ -7,6 +7,7 @@ function mockFetchOnce(response: Partial<Response> & { json?: () => Promise<unkn
     vi.fn().mockResolvedValue({
       ok: response.ok ?? true,
       status: response.status ?? 200,
+      headers: response.headers ?? new Headers(),
       json: response.json ?? (async () => ({})),
     } as Response),
   );
@@ -63,6 +64,20 @@ describe('apiFetch', () => {
       code: 'legajo_not_found',
       message: 'No existe',
       details: { x: 1 },
+    });
+  });
+
+  it('exposes Retry-After from a 429 response on the thrown ApiError', async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '3' }),
+      json: async () => ({ error: { code: 'throttled', message: 'Too many requests', details: {} } }),
+    });
+
+    await expect(apiFetch('/foo/')).rejects.toMatchObject({
+      status: 429,
+      retryAfterSeconds: 3,
     });
   });
 

@@ -4,13 +4,23 @@ export class ApiError extends Error {
   status: number;
   code: string;
   details: Record<string, unknown>;
+  /** Segundos sugeridos por el servidor antes de reintentar (header Retry-After
+   * de un 429), si vino. */
+  retryAfterSeconds: number | null;
 
-  constructor(status: number, code: string, message: string, details: Record<string, unknown>) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details: Record<string, unknown>,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -37,11 +47,13 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     } catch {
       payload = null;
     }
+    const retryAfterHeader = response.headers.get('Retry-After');
     throw new ApiError(
       response.status,
       payload?.error?.code ?? 'unknown_error',
       payload?.error?.message ?? `Error ${response.status}`,
       payload?.error?.details ?? {},
+      retryAfterHeader ? Number(retryAfterHeader) : null,
     );
   }
 

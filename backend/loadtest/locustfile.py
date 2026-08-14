@@ -42,9 +42,15 @@ DOCENTE_USERNAME = os.environ["DOCENTE_USERNAME"]
 DOCENTE_PASSWORD = os.environ["DOCENTE_PASSWORD"]
 QUIZ_ID = int(os.environ["QUIZ_ID"])
 
-LEGAJO_PREFIX = os.environ.get("LOCUST_LEGAJO_PREFIX", "LOAD")
 LEGAJO_COUNT = int(os.environ.get("LOCUST_LEGAJO_COUNT", "60"))
-LEGAJOS = [f"{LEGAJO_PREFIX}{i:04d}" for i in range(1, LEGAJO_COUNT + 1)]
+if os.environ.get("LOCUST_LEGAJO_START"):
+    # Legajos ya existentes en el ambiente de destino como un rango numérico
+    # secuencial (ej. legajos reales de prueba precargados vía CSV import).
+    _legajo_start = int(os.environ["LOCUST_LEGAJO_START"])
+    LEGAJOS = [str(_legajo_start + i) for i in range(LEGAJO_COUNT)]
+else:
+    LEGAJO_PREFIX = os.environ.get("LOCUST_LEGAJO_PREFIX", "LOAD")
+    LEGAJOS = [f"{LEGAJO_PREFIX}{i:04d}" for i in range(1, LEGAJO_COUNT + 1)]
 
 # Cuánto deja abierta cada pregunta el "docente" antes de revelarla, y la
 # pausa entre revelar y arrancar la siguiente. Ajustalos para que se
@@ -77,16 +83,20 @@ class DocenteUser(HttpUser):
         token = resp.json()["token"]
         self.client.headers.update({"Authorization": f"Token {token}"})
 
-        resp = self.client.get(f"/api/v1/docente/quizzes/{QUIZ_ID}/", name="/docente/quizzes/[id]/")
-        resp.raise_for_status()
-        self.questions = sorted(resp.json()["questions"], key=lambda q: q["order"])
-        if not self.questions:
-            raise RuntimeError(f"El quiz {QUIZ_ID} no tiene preguntas cargadas.")
-
         resp = self.client.post(f"/api/v1/docente/quizzes/{QUIZ_ID}/start/", name="/docente/quizzes/[id]/start/")
         resp.raise_for_status()
         self.code = resp.json()["code"]
         session_state["code"] = self.code
+
+        # Se piden las preguntas por sesión (permiso: quien la arrancó) en vez
+        # de por quiz (permiso: solo el dueño) -- así funciona también cuando
+        # el docente que corre la sesión no es el dueño del quiz, sino alguien
+        # con quien se lo compartieron (igual que HostDashboardPage.tsx).
+        resp = self.client.get(f"/api/v1/sessions/{self.code}/questions/", name="/sessions/[code]/questions/")
+        resp.raise_for_status()
+        self.questions = sorted(resp.json(), key=lambda q: q["order"])
+        if not self.questions:
+            raise RuntimeError(f"El quiz {QUIZ_ID} no tiene preguntas cargadas.")
 
         # Corre aparte del loop normal de @task para no competir por turno
         # con el sondeo de host-state.
